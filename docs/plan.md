@@ -64,7 +64,7 @@ Exit check: a reproducible baseline has real validation scores and no unresolved
 - [x] Run a smoke fit, then train the first full histogram-boosting contender on the same outer split as the baseline.
 - [x] Save aligned validation probabilities, settings, actual iterations, metrics, and runtime under `artifacts/`.
 - [x] Compare ROC AUC, log loss, runtime, and observed resource usage against logistic regression. Check major error slices by travel type, customer type, and cabin class; report associations, not causal conclusions.
-- [x] Select HGB because its gain repeated on both fixed splits; no complexity expansion was needed.
+- [x] Select HGB as the initial nonlinear baseline because its gain repeated on both fixed splits; the later, separately authorized challenger increment is recorded in Phase 5.
 
 Exit check: both models have directly comparable measured results, with a provisional choice and explicit uncertainty.
 
@@ -72,12 +72,13 @@ Exit check: both models have directly comparable measured results, with a provis
 
 - [x] Re-evaluate shortlisted candidates on another fixed stratified split seed (2024). Keep the comparison protocol identical across candidates.
 - [x] Check whether model ranking and claimed improvements are repeatable. HGB won both fixed splits by more than the minimum gain threshold.
-- [ ] Optional: install CatBoost locally, smoke-test it, and compare a small fixed configuration set with training-only early stopping and bounded threads. Skip if the measured baseline is sufficient or time/resources do not justify it.
+- [x] Install CatBoost locally, smoke-test it, and compare the one predeclared native configuration with training-only early stopping and bounded threads. CatBoost qualified on both fixed seeds; HGB-1000 was also measured but missed the minimum gain on seed 2024. Results and exact metadata are in `artifacts/challengers/compare_metadata.json` and `approach.md`.
 - [ ] Optional: compare rating features as numeric versus categorical, including treatment of zeros as real observed values rather than assumed missing values.
 - [ ] Optional: compare a small set of low-rating counts, rating averages, or delay indicators. Keep only repeatable gains; remove unused experimental code.
 - [ ] Optional: assess whether original-source data is worth a separate experiment. Obtain download authorization and check terms, schema, overlap, and distribution before using it. Do not infer test labels or hand-label records.
 - [ ] Optional: evaluate a simple blend using validation predictions aligned by row ID. Keep it only if it beats the best component consistently; skip stacking infrastructure.
-- [x] Select the final model/settings using local evidence and available time. CatBoost, LightGBM, feature engineering, and ensembles were skipped because the bounded HGB result was sufficient for this delivery.
+- [x] Select the challenger using local evidence and the predeclared two-seed rule. CatBoost qualified with AUC gains of 0.000549887 and 0.000533392 over the original HGB and was selected among qualifying challengers. The original model-selection policy and root `artifacts/` baseline remain unchanged; LightGBM, feature engineering, and ensembles were skipped.
+- [x] Run the separately authorized single deeper CatBoost experiment with only `depth=8` changed from the existing depth-6 configuration. On seeds 42 and 2024, gains versus prior depth-6 CatBoost were `+0.0000541864` and `-0.0000598357`; the `0.0002`-each-seed gate was not met. Retain the prior depth-6 candidate and create no new final candidate. Exact results and provenance are in `artifacts/deeper_catboost/compare_metadata.json` and `approach.md`.
 
 ### Optional higher-compute extension — before final selection
 
@@ -101,11 +102,11 @@ Exit check: the selected method has confirmation beyond a single favorable holdo
 
 ## Phase 6 — Refit and generate a validated prediction file
 
-- [x] Freeze final feature definitions, preprocessing, hyperparameters, seed, and iteration count using local validation evidence only.
-- [x] Refit the chosen preprocessing/model on all training rows. The fixed 200-iteration policy came from the two validation fits; the outer validation data was not reused for early stopping.
-- [x] Save the fitted pipeline/model and run metadata locally. A clean interpreter reloaded the artifact successfully; the synthetic probability comparison was exact and the full submission comparison stayed within floating-point CSV round-trip precision.
+- [x] Freeze the challenger feature definitions, preprocessing, hyperparameters, seed, and iteration count using local validation evidence only. CatBoost used median `best_iteration + 1`, rounded to 1186; the outer holdouts were not used as early-stopping evaluation data.
+- [x] Refit the selected CatBoost model on all training rows with early stopping disabled. Save the native model under `artifacts/challengers/`; preserve the original root final model and submission.
+- [x] Save challenger feature spec, model, submission, validation predictions, and metadata locally. A clean interpreter reloaded the native model and reproduced all 299,844 predictions exactly; CSV round-trip difference was `2.22e-16`.
 - [x] Predict satisfaction probabilities for every test row in original test order. The export contains positive-class probabilities, not labels or negative-class probabilities.
-- [x] Write `artifacts/submission.csv` with exactly `id,satisfaction` and no dataframe index column.
+- [x] Write `artifacts/challengers/submission.csv` with exactly `id,satisfaction` and no dataframe index column; preserve the original `artifacts/submission.csv`.
 - [x] Reload the written CSV and verify 299,844 rows, exact test ID sequence, unique IDs, no missing/infinite predictions, and every probability in [0, 1].
 - [x] Add/run a small synthetic export check that fails on malformed schema, duplicate/misaligned IDs, and out-of-range/nonfinite probabilities. Real-file checks also passed.
 - [x] Verify the source CSV fingerprints remained unchanged and `git status` shows no raw data, fitted models, or predictions staged for publication.
@@ -115,15 +116,16 @@ Exit check: a real, locally validated prediction artifact exists and its generat
 ## Phase 7 — Validate implementation and hand off
 
 - [x] Run quality gates in order: format, lint, typecheck, test. Use minimal project-local tooling/configuration where missing; keep checks focused on implemented source and tests, not source-data formatting.
-- [x] Rerun the runnable regression check and the documented training/export command after the final code change. The final run passed and its real outputs are recorded in `approach.md`.
+- [x] Rerun the runnable regression check and the documented baseline/challenger commands after the final code change. The follow-up wrapper regression checks are synthetic only: ordinary failure persistence, protected-artifact finalization, and completed-rejected/timeout CLI summaries. No depth-8 model rerun was needed; completed results remain preserved.
 - [x] Review the final diff for scope, credentials, accidental data exposure, leakage, unused experimental code, and dependency additions.
-- [x] Record exact reproduction commands, environment versions, selected settings, measured validation results/runtime, and the prediction artifact path. Existing documentation was updated; no separate design/report file was created.
+- [x] Record exact reproduction commands including `compare.py`, environment versions, selected settings, measured validation results/runtime, protected baseline fingerprints, and challenger artifact paths. Existing documentation was updated; no separate design/report file was created.
 - [x] Present results and remaining uncertainties to the user. Changes remain uncommitted; no push or publication occurred.
 
 Exit check: working code and prediction artifact are backed by actual execution, with no unsupported success claims.
 
 ## Phase 8 — Submit only with explicit approval
 
+- [x] Record that the agent made no new submission for the deeper experiment; the user manually submitted prior models. The deeper candidate did not qualify and no new final CSV exists.
 - [ ] Recheck live rules, deadline, participation eligibility/acceptance status, and available submission allowance. Resolve outstanding compliance questions before upload.
 - [ ] Obtain explicit approval for the exact prediction file and submission action. A completed local plan is not submission authorization.
 - [ ] Upload the approved CSV through the authorized Kaggle account and read back submission status/score. Do not claim success from an upload response alone.

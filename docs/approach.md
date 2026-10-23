@@ -2,7 +2,7 @@
 
 ## Status and objective
 
-The VPS-only implementation and local training/export run completed on 2026-10-23. Real validation results and artifact paths are recorded below. No competition submission was uploaded.
+The VPS-only implementation and local training/export run completed on 2026-10-23. A bounded challenger experiment completed locally on 2026-10-24 HKT (2026-10-23 UTC). Real validation results and artifact paths are recorded below. No competition submission was uploaded.
 
 Predict the probability of passenger satisfaction for each test row. Optimize ROC AUC. Start with a reproducible CPU baseline, then compare boosted trees on identical validation rows. Execution tasks are in [plan.md](plan.md); no separate architecture document is needed.
 
@@ -43,7 +43,7 @@ Both candidates used the same stratified 80/20 outer split (seed 42). HGB early 
 | Logistic regression | 0.920455 | 0.346764 | 0.920458 | 0.346452 | 2.887 / 2.986 |
 | HistGradientBoostingClassifier | 0.956800 | 0.232302 | 0.957212 | 0.230954 | 9.630 / 9.810 |
 
-The selected model is histogram gradient boosting. Candidate fits used `max_iter=200`, `max_leaf_nodes=31`, learning rate `0.08`, `l2_regularization=0.1`, internal early stopping, `validation_fraction=0.1`, `n_iter_no_change=20`, `random_state=42`, explicit categorical feature markers, and two-thread limits. Both measured HGB fits reached 200 iterations. The logistic fits used 22 actual iterations. The HGB full-data refit used the median observed iteration count (200) with `early_stopping=false` and `validation_fraction=null`; its final settings retained `l2_regularization=0.1` and `random_state=42` without outer holdout reuse. Selection required at least `0.0005` ROC AUC gain on both fixed splits. Final fit time was 10.470 seconds; final elapsed time including inference, serialization, reload, and export validation was 13.917 seconds.
+The initial selected model was histogram gradient boosting. Candidate fits used `max_iter=200`, `max_leaf_nodes=31`, learning rate `0.08`, `l2_regularization=0.1`, internal early stopping, `validation_fraction=0.1`, `n_iter_no_change=20`, `random_state=42`, explicit categorical feature markers, and two-thread limits. Both measured HGB fits reached 200 iterations. The logistic fits used 22 actual iterations. The HGB full-data refit used the median observed iteration count (200) with `early_stopping=false` and `validation_fraction=null`; its final settings retained `l2_regularization=0.1` and `random_state=42` without outer holdout reuse. Selection required at least `0.0005` ROC AUC gain on both fixed splits. Final fit time was 10.470 seconds; final elapsed time including inference, serialization, reload, and export validation was 13.917 seconds.
 
 The fitted pipeline uses scikit-learn `ColumnTransformer` with numeric passthrough and `OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=NaN, encoded_missing_value=NaN)` for the four categorical columns. A synthetic subprocess regression check loaded the joblib in a clean interpreter and reproduced probabilities exactly. The full exported artifact also loaded in a clean interpreter and reproduced all 299,844 submission probabilities within `1.11e-16` maximum absolute difference after CSV round-tripping; the in-process artifact check was exactly 0.0.
 
@@ -53,7 +53,111 @@ Input SHA-256 fingerprints were unchanged before and after training: `train.csv`
 
 The local artifacts are `artifacts/run_metadata.json`, `artifacts/final_model.joblib`, `artifacts/validation_logistic.csv`, `artifacts/validation_hist_gradient_boosting.csv`, split files, and `artifacts/submission.csv`. The submission file was reloaded and verified to contain exactly 299,844 rows, columns `id,satisfaction`, unique IDs in exact test order, finite probabilities in `[0, 1]`, and no index column. Synthetic negative checks cover bad schema, duplicate/misaligned IDs, and NaN/infinite/out-of-range probabilities. It remains local and ignored; submission authorization is still pending.
 
-CatBoost, LightGBM, manual feature engineering, ensembles, Mac/MPS work, and leaderboard iteration were skipped because the bounded VPS path produced a repeatable HGB improvement and the user authorized no Mac, remote, or submission work.
+The initial run skipped CatBoost, LightGBM, manual feature engineering, ensembles, Mac/MPS work, and leaderboard iteration. The later CatBoost challenger below was separately authorized and run locally. No remote data, leaderboard call, submission, or public artifact was used.
+
+## Bounded challenger experiment
+
+The user authorized one bounded challenger increment after the initial HGB result. The entry point is [compare.py](../compare.py); it reuses `train.py` input validation, feature definitions, recorded `outer_split.npz` and `confirmation_split.npz`, probability checks, and submission validation. It does not modify the original artifacts in `artifacts/`.
+
+The experiment used sequential fits on two CPUs with thread/OpenMP/BLAS limits of two. Smoke fits ran before the four full validation fits. The predeclared configurations were exactly:
+
+- HGB-1000: the existing HGB preprocessing and hyperparameters, changing only `max_iter` from 200 to 1000; existing internal early stopping remained enabled with validation fraction 0.1 and patience 20.
+- CatBoost native: `depth=6`, `iterations=1200`, `learning_rate=0.06`, `loss_function=Logloss`, `eval_metric=AUC`, `l2_leaf_reg=3`, `random_seed=42`, `thread_count=2`, `allow_writing_files=false`, and `early_stopping_rounds=100`, with the four nominal columns passed as native categorical features. Numeric NaN values remained native NaNs.
+
+CatBoost 1.2.8 was installed only in `.venv` with `--no-cache-dir` and pinned in `requirements.txt`. The full comparison took 660.079 seconds. Smoke fits completed in 0.155 seconds for HGB-1000 (63 iterations) and 1.070 seconds for CatBoost (188 actual iterations, best iteration index 187). The process-level resident-memory high-water mark reached 1490.3 MB; this is not an isolated per-model memory measurement. CPU count and configured thread limit were both two.
+
+| Candidate | Seed 42 AUC / log loss | Seed 2024 AUC / log loss | AUC gain over original HGB | Actual iterations | Fit seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original HGB-200 | 0.956799979 / 0.232302 | 0.957212140 / 0.230954 | reference | 200 / 200 | 9.630 / 9.810 |
+| HGB-1000 | 0.957054352 / 0.231626 | 0.957403105 / 0.230237 | +0.000254373 / +0.000190965 | 361 / 499 | 17.114 / 21.658 |
+| CatBoost native | 0.957349866 / 0.231259 | 0.957745532 / 0.230124 | +0.000549887 / +0.000533392 | 1171 / 1200 | 192.598 / 181.161 |
+
+Timing limitation: the comparison metadata's `fit_seconds` includes prediction/evaluation, unlike the baseline's fit-only timer. Final-refit timing also includes export and reload checks. Do not treat these as like-for-like training-speed benchmarks.
+
+The minimum qualifying gain was predeclared as 0.0002 AUC on both seeded holdouts. HGB-1000 did not qualify because its seed-2024 gain was 0.000190965. CatBoost qualified on both seeds and had the highest mean AUC, so it was selected as a challenger-only final candidate. The seeded holdouts overlap; this is a stability diagnostic, not independent confirmation.
+
+CatBoost best iteration indices were 1170 and 1199. The all-training-row refit therefore used the median of `best_iteration + 1`, rounded from 1185.5 to 1186, with early stopping disabled. It produced [artifacts/challengers/final_model_catboost.cbm](../artifacts/challengers/final_model_catboost.cbm), [artifacts/challengers/feature_spec.json](../artifacts/challengers/feature_spec.json), and [artifacts/challengers/submission.csv](../artifacts/challengers/submission.csv). A clean process reloaded the native model and predicted all 299,844 test rows: maximum model-reload difference was 0.0 and maximum CSV round-trip difference was `2.22e-16`. The original `artifacts/submission.csv`, `final_model.joblib`, validation files, split files, and `run_metadata.json` remain the active baseline and were not replaced.
+
+Validation predictions for both candidates and both seeds are saved under `artifacts/challengers/validation_*.csv`. Exact CatBoost internal 90/10 fit/validation row indices and corresponding IDs are recorded in `artifacts/challengers/compare_metadata.json`; each internal validation subset is disjoint from its outer holdout. The same metadata records settings, actual/best iterations, AUC, log loss, fit/runtime, resource counts, package versions, input hashes, and the selection decision.
+
+The input fingerprints remained `train.csv` `2313b65c74e6994f01c2628aae82d2f97aa6f74a81950172ff83864837c98b36` and `test.csv` `ff7932747f27c5274de904194ac38b4d088ea4f9bb005ae74f0d619fb893a9b6`. Protected baseline artifact fingerprints matched before and after the experiment; the recorded after-check is in `artifacts/challengers/protected_baseline_sha256.json`.
+
+The user reported a public screenshot showing baseline AUC `0.95737`, rank `2427`, and top AUC `0.96387`. This is user-reported only, was not independently fetched, was not treated as a local metric, and was not used for selection. No local AUC leaderboard was called.
+
+The final challenger gates and real path were run with:
+
+```text
+.venv/bin/ruff format train.py test_train.py compare.py
+.venv/bin/ruff check train.py test_train.py compare.py
+.venv/bin/mypy train.py test_train.py compare.py
+.venv/bin/python -m unittest -v test_train.py
+/usr/bin/timeout --signal=TERM --kill-after=30s 1200s .venv/bin/python compare.py --data-dir data --artifacts-dir artifacts
+```
+
+## Deeper CatBoost experiment
+
+On 2026-10-24 HKT, the user authorized one deeper CatBoost experiment. The new
+entry point was run as `compare.py --deeper-catboost` with a 1500-second hard
+timeout. It ran only the new depth-8 CatBoost configuration; it did not rerun
+logistic regression, HGB, or the existing depth-6 CatBoost fit. Numerical
+thread limits were set before importing NumPy, pandas, and CatBoost. The exact
+configuration was `depth=8`, `iterations=1200`, `learning_rate=0.06`,
+`l2_leaf_reg=3`, `loss_function=Logloss`, `eval_metric=AUC`, `random_seed=42`,
+`thread_count=2`, `allow_writing_files=false`, and
+`early_stopping_rounds=100`. Only depth changed from the prior depth-6 run.
+
+The run reused the recorded outer split arrays for seeds 42 and 2024 and the
+exact prior CatBoost internal 90/10 seed-42 subsets. Outer holdouts were never
+passed as `eval_set`. Fit-only seconds were captured immediately after each
+CatBoost fit; process high-water RSS and thread-pool observations are recorded
+in the metadata. Both validation fits completed:
+
+| Split seed | Depth-6 AUC | Depth-8 AUC | Gain | Actual / best iteration | Fit seconds |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 42 | 0.9573498661 | 0.9574040525 | +0.0000541864 | 512 / 511 | 119.091 |
+| 2024 | 0.9577455323 | 0.9576856966 | -0.0000598357 | 654 / 653 | 140.711 |
+
+The required gain was at least `0.0002` on each seed. The depth-8 candidate was
+rejected and the prior depth-6 CatBoost candidate was retained. Because the
+candidate did not qualify, no all-row depth-8 refit, native depth-8 model, or
+descriptive final submission was created. The completed validation outputs and
+full provenance are under `artifacts/deeper_catboost/`:
+
+- `compare_metadata.json` contains the exact one new config, source/package
+  versions, input hashes before/after, complete split and internal indices/IDs,
+  validation metrics, fit times, resource observations, and the rejection.
+- `validation_catboost_depth8_seed42.csv` and
+  `validation_catboost_depth8_seed2024.csv` contain only validation outputs.
+- `protected_baseline_sha256.json` records the existing artifact fingerprints.
+
+The raw input fingerprints were unchanged:
+`train.csv` `2313b65c74e6994f01c2628aae82d2f97aa6f74a81950172ff83864837c98b36`;
+`test.csv` `ff7932747f27c5274de904194ac38b4d088ea4f9bb005ae74f0d619fb893a9b6`.
+Every pre-existing file under `artifacts/` and `artifacts/challengers/` matched
+its before/after SHA-256 fingerprint, including the prior native model,
+submission, and metadata. No existing candidate was promoted or modified.
+
+The user separately reported a prior public CatBoost result of AUC `0.95797`
+and rank `2225`, improving on a reported AUC `0.95737` and rank `2427`. These
+are user-reported public results only, were not live-verified, and were not
+used for local selection. The agent made no new submission; the user manually
+submitted prior models. Submission/publication, commit, push, and Phase 8
+remain pending.
+
+After the final source change, the required gates passed in order:
+
+```text
+.venv/bin/ruff format compare.py train.py test_train.py
+.venv/bin/ruff check compare.py train.py test_train.py
+.venv/bin/mypy compare.py train.py test_train.py
+.venv/bin/python -m unittest -v test_train.py
+```
+
+The follow-up orchestration review is wrapper-only. Synthetic tests cover
+ordinary fit failure persistence, input/protected-artifact finalization, and the
+completed-rejected and timeout CLI summaries. The completed depth-8 rejection
+artifacts above were not rerun or modified; no model training is required for
+these checks.
 
 ## Observed local data
 
@@ -103,9 +207,9 @@ Purpose: establish an inexpensive, understandable reference and exercise the com
 
 Purpose: capture interactions among loyalty, travel type, cabin class, and ratings without manual interaction expansion or another boosting dependency.
 
-### 3. Optional CatBoost challenger
+### 3. CatBoost challenger
 
-Install CatBoost only in the project-local environment when the previous stages are measured and a challenger is justified. Use native categorical handling, explicit missing-numeric treatment if required, bounded CPU threads, and an internal early-stopping split. Try a small, fixed configuration set, not an unrestricted search.
+The bounded challenger was run after the previous stages were measured and authorized. It used the project-local environment, native categorical handling, native numeric NaNs, bounded CPU threads, and an explicit training-only early-stopping split. The single fixed configuration qualified on both seeded holdouts. No unrestricted search was run.
 
 CatBoost is plausible for this feature mix, not a guaranteed winner. LightGBM is an alternative later; do not add multiple boosting libraries at once.
 
@@ -132,7 +236,7 @@ Keep all transfers to an explicitly authorized machine under the same data-acces
 
 ## Deliverable and scope
 
-Use one local training entry point and one small runnable regression check initially. Pin the environment and record seeds, settings, input fingerprints, scores, and runtime in lightweight local artifacts. Do not build an experiment platform.
+Use one local training entry point, one small runnable regression check, and one modest challenger entry point. Pin the environment and record seeds, settings, input fingerprints, scores, and runtime in lightweight local artifacts. Do not build an experiment platform.
 
 After model selection, refit preprocessing/model on all training rows using settings/iteration counts selected without test labels. Generate probabilities in original test ID order. Check exact schema, row count, unique matching IDs, finite values in [0, 1], and absence of an accidental index column. Keep models, predictions, caches, and data out of Git unless separately authorized.
 
