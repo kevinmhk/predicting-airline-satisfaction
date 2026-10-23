@@ -2,7 +2,7 @@
 
 Strategy and evidence: [approach.md](approach.md). Official snapshots: [overview.md](overview.md), [data.md](data.md), and [rules.md](rules.md).
 
-`[x]` means verified complete. `[ ]` means not completed. Optional phases may be skipped with a short reason; do not mark an unrun experiment complete. This is a task list, not authorization to execute it. No model scores exist yet.
+`[x]` means verified complete. `[ ]` means not completed. Optional phases may be skipped with a short reason; do not mark an unrun experiment complete. This is a task list, not authorization to execute it. Measured results are recorded in [approach.md](approach.md); Phase 8 remains pending.
 
 ## Phase 0 — Establish facts and boundaries
 
@@ -14,70 +14,70 @@ Strategy and evidence: [approach.md](approach.md). Official snapshots: [overview
 - [x] Measure target balance, missingness, feature cardinalities, basic distribution differences, and exact duplicate/overlap hashes.
 - [x] Record observations, model proposals, limitations, and compliance questions in `approach.md`.
 - [ ] Confirm the user's Kaggle account, competition participation status, and unresolved eligibility/employer/sanctions checks before entry or submission. Do not infer acceptance from a successful download.
-- [ ] Resolve external-AI data/code sharing against the competition rules before providing competition material to hosted coding/training services. Keep local analysis separate from that decision.
-- [ ] Obtain authorization for the first implementation increment. Do not register, accept terms, spend, publish, commit, push, or submit as an implicit part of implementation.
+- [x] Record the user's confirmation that external AI assistance is permitted for this implementation/training increment. Hosted coding/review assistance was used; this permission is user-confirmed, not independently host-verified. Raw CSVs and model training remained local.
+- [x] Obtain authorization for the first implementation increment. Registration, terms acceptance, spending, publication, commit, push, and submission remain unauthorized.
 
 Exit check: observed findings are distinguished from hypotheses, and the next execution scope and access boundaries are explicit.
 
 ## Phase 1 — Prepare the smallest reproducible environment
 
-- [ ] Inspect current repository instructions and working-tree state before editing.
-- [ ] Create a project-local virtual environment; do not modify the unrelated RD-Agent environment used for inspection.
-- [ ] Install and pin pandas, NumPy, and scikit-learn. Confirm the installed scikit-learn API supports the selected categorical boosting path.
-- [ ] Set bounded CPU thread counts, initially no more than two; check available memory and disk before training.
-- [ ] Extend `.gitignore` for the virtual environment, Python caches, and a single local `artifacts/` directory while preserving `/data/`.
-- [ ] Define one training entry point and one lightweight test module. Avoid package scaffolding, configuration frameworks, and orchestration services.
-- [ ] Store future models, metrics, validation predictions, and submission files under `artifacts/`, not `docs/` or tracked source folders.
+- [x] Inspect current repository instructions and working-tree state before editing.
+- [x] Create a project-local virtual environment; do not modify the unrelated RD-Agent environment used for inspection.
+- [x] Install and pin pandas, NumPy, and scikit-learn. Confirm the installed scikit-learn API supports the selected categorical boosting path.
+- [x] Set bounded CPU thread counts, initially no more than two; check available memory and disk before training.
+- [x] Extend `.gitignore` for the virtual environment, Python caches, and a single local `artifacts/` directory while preserving `/data/`.
+- [x] Define one training entry point and one lightweight test module. Avoid package scaffolding, configuration frameworks, and orchestration services.
+- [x] Store models, metrics, validation predictions, and submission files under ignored `artifacts/`, not `docs/` or tracked source folders.
 
 Exit check: the isolated environment imports required packages, dependency versions are recorded, and Git excludes data/runtime artifacts.
 
 ## Phase 2 — Define and test the validation contract
 
-- [ ] Implement input checks for required fields, train/test predictor agreement, valid binary target, and unique/disjoint IDs. Return an actionable error for invalid input.
-- [ ] Exclude `id` and `satisfaction` from predictor inputs. Separate nominal categorical features from numeric features explicitly.
-- [ ] Create the stratified 80/20 outer split with seed 42. Record split row IDs or indices locally so models use identical validation rows.
-- [ ] Check split disjointness, complete training-row coverage, and presence of both classes in each partition.
-- [ ] Record SHA-256 input fingerprints and exact dependency versions with each run. Leave source data unchanged.
-- [ ] Define common evaluation output: model/settings, split seed, ROC AUC, log loss, elapsed fit time, and convergence/early-stopping information.
-- [ ] Write a small synthetic regression check before implementing nontrivial preprocessing/export behavior. Cover missing delay, an unseen category, and exclusion of ID/target features without using raw competition rows in test fixtures.
-- [ ] Check that preprocessing is trained only on the fit partition. Reserve the outer validation set for evaluation, not early stopping or transformation fitting.
+- [x] Implement input checks for required fields, train/test predictor agreement, valid binary target, and unique/disjoint IDs. Return an actionable error for invalid input.
+- [x] Exclude `id` and `satisfaction` from predictor inputs. Separate nominal categorical features from numeric features explicitly.
+- [x] Create the stratified 80/20 outer split with seed 42. Record split indices locally so models use identical validation rows.
+- [x] Check split disjointness, complete training-row coverage, and presence of both classes in each partition.
+- [x] Record SHA-256 input fingerprints and exact dependency versions with each run. Leave source data unchanged.
+- [x] Define common evaluation output: model/settings, split seed, ROC AUC, log loss, elapsed fit time, and convergence/early-stopping information.
+- [x] Write a small synthetic regression check before implementing nontrivial preprocessing/export behavior. Cover missing delay, an unseen category, exclusion of ID/target features, and clean-interpreter joblib reload without using raw competition rows in test fixtures.
+- [x] Check that preprocessing is trained only on the fit partition. Reserve the outer validation set for evaluation, not early stopping or transformation fitting.
 
 Exit check: the synthetic check passes, split membership is reproducible, and both candidate models share the same evaluation contract.
 
 ## Phase 3 — Measure the baseline
 
-- [ ] Compute a constant-probability reference from fit-partition target prevalence; evaluate its ROC AUC and log loss.
-- [ ] Build the logistic regression pipeline with training-fitted median imputation, numeric scaling, and one-hot categorical encoding with unknown-category handling.
-- [ ] Run a small smoke fit to verify valid two-class probabilities and the end-to-end metric path before a full baseline fit.
-- [ ] Train on the full fit partition. Check convergence warnings; adjust iteration limits or solver only if needed.
-- [ ] Save outer-validation probabilities with row IDs, metrics, settings, seed, input fingerprints, and elapsed time locally.
-- [ ] Inspect AUC/log-loss results against the constant reference. Investigate implausible results or failed convergence before advancing; do not invent a target AUC.
-- [ ] Record measured results and limitations in `approach.md` without replacing the distinction between observations and proposals.
+- [x] Compute a constant-probability reference from fit-partition target prevalence; evaluate its ROC AUC and log loss.
+- [x] Build the logistic regression pipeline with training-fitted median imputation, numeric scaling, and one-hot categorical encoding with unknown-category handling.
+- [x] Run a small smoke fit to verify valid two-class probabilities and the end-to-end metric path before a full baseline fit.
+- [x] Train on the full fit partition. Check convergence warnings; no convergence adjustment was required.
+- [x] Save outer-validation probabilities with row IDs, metrics, settings, seed, input fingerprints, and elapsed time locally.
+- [x] Inspect AUC/log-loss results against the constant reference. The measured baseline is plausible and emitted no convergence or probability errors.
+- [x] Record measured results and limitations in `approach.md` without replacing the distinction between observations and proposals.
 
 Exit check: a reproducible baseline has real validation scores and no unresolved fitting or probability-validity failures.
 
 ## Phase 4 — Compare histogram gradient boosting
 
-- [ ] Build training-fitted category mappings, safe unseen-category handling, and explicit categorical-column markers for histogram boosting. Preserve NaN numeric delays.
-- [ ] Extend the synthetic check to cover the boosting transformation and stable feature order. Verify missing/unseen values do not cause an invalid prediction.
-- [ ] Set a small, bounded initial configuration. Use only an internal subset of the fit partition for early stopping.
-- [ ] Run a smoke fit, then train the first full histogram-boosting contender on the same outer split as the baseline.
-- [ ] Save aligned validation probabilities, settings, actual iterations, metrics, and runtime under `artifacts/`.
-- [ ] Compare ROC AUC, log loss, runtime, and observed resource usage against logistic regression. Check major error slices by class/travel type/customer type where counts support interpretation; report associations, not causal conclusions.
-- [ ] Keep the simpler baseline if boosting gives no useful benefit; document the measured reason rather than expanding the search automatically.
+- [x] Build a scikit-learn `ColumnTransformer` with safe `OrdinalEncoder` unknown-category handling and explicit categorical-column markers for histogram boosting. Preserve NaN numeric delays.
+- [x] Extend the synthetic check to cover the boosting transformation and stable feature order. Verify missing/unseen values do not cause an invalid prediction.
+- [x] Set a small, bounded initial configuration. Use only an internal subset of the fit partition for early stopping.
+- [x] Run a smoke fit, then train the first full histogram-boosting contender on the same outer split as the baseline.
+- [x] Save aligned validation probabilities, settings, actual iterations, metrics, and runtime under `artifacts/`.
+- [x] Compare ROC AUC, log loss, runtime, and observed resource usage against logistic regression. Check major error slices by travel type, customer type, and cabin class; report associations, not causal conclusions.
+- [x] Select HGB because its gain repeated on both fixed splits; no complexity expansion was needed.
 
 Exit check: both models have directly comparable measured results, with a provisional choice and explicit uncertainty.
 
 ## Phase 5 — Confirm the choice and run only justified experiments
 
-- [ ] Re-evaluate shortlisted candidates on another fixed stratified split seed or three-fold stratified validation. Keep the comparison protocol identical across candidates.
-- [ ] Check whether model ranking and claimed improvements are repeatable. Treat tiny or inconsistent differences as uncertain.
+- [x] Re-evaluate shortlisted candidates on another fixed stratified split seed (2024). Keep the comparison protocol identical across candidates.
+- [x] Check whether model ranking and claimed improvements are repeatable. HGB won both fixed splits by more than the minimum gain threshold.
 - [ ] Optional: install CatBoost locally, smoke-test it, and compare a small fixed configuration set with training-only early stopping and bounded threads. Skip if the measured baseline is sufficient or time/resources do not justify it.
 - [ ] Optional: compare rating features as numeric versus categorical, including treatment of zeros as real observed values rather than assumed missing values.
 - [ ] Optional: compare a small set of low-rating counts, rating averages, or delay indicators. Keep only repeatable gains; remove unused experimental code.
 - [ ] Optional: assess whether original-source data is worth a separate experiment. Obtain download authorization and check terms, schema, overlap, and distribution before using it. Do not infer test labels or hand-label records.
 - [ ] Optional: evaluate a simple blend using validation predictions aligned by row ID. Keep it only if it beats the best component consistently; skip stacking infrastructure.
-- [ ] Select the final model/settings using local evidence and available time. Record why discarded alternatives were not kept.
+- [x] Select the final model/settings using local evidence and available time. CatBoost, LightGBM, feature engineering, and ensembles were skipped because the bounded HGB result was sufficient for this delivery.
 
 ### Optional higher-compute extension — before final selection
 
@@ -95,30 +95,30 @@ Run only after Phases 3–4 have measured results, Mac access is confirmed, exec
 - [ ] Reuse the existing conditional rating-encoding, feature-aggregate, and original-source-data tasks; do not create duplicate experiment pipelines or bypass their access/validation checks.
 - [ ] Test a simple blend using aligned out-of-fold predictions from complementary models. Restrict weight search and confirm its gain on another seed or an untouched confirmation split; retain a single model if improvement is not repeatable.
 - [ ] Optional learning experiment: confirm PyTorch MPS availability/operation support, smoke-test a small tabular network, and benchmark it against CPU and the tree baseline. Use training-only preprocessing/early stopping, cap training time, and skip if neither learning value nor predictive complementarity justifies it. Do not assume CatBoost/LightGBM use the Apple GPU.
-- [ ] Record measured results or explicit skip reasons in `approach.md`. Select the final method before Phase 6; do not make Mac experiments a delivery prerequisite or spend submission time on an unfinished search.
+- [x] Record measured results or explicit skip reasons in `approach.md`. Select the final method before Phase 6; Mac experiments were not made a delivery prerequisite.
 
 Exit check: the selected method has confirmation beyond a single favorable holdout; optional work is either measured or explicitly skipped, with no promised leaderboard outcome.
 
 ## Phase 6 — Refit and generate a validated prediction file
 
-- [ ] Freeze final feature definitions, preprocessing, hyperparameters, seed, and iteration count using local validation evidence only.
-- [ ] Refit the chosen preprocessing/model on all training rows. If early stopping was used, select a fixed full-data iteration policy from validation evidence rather than holding out the outer validation data again or inspecting test labels.
-- [ ] Save the fitted pipeline/model and run metadata locally. Verify reload produces equivalent probabilities on a small local check.
-- [ ] Predict satisfaction probabilities for every test row in original test order. Do not export class labels or the negative-class probability by mistake.
-- [ ] Write `artifacts/submission.csv` with exactly `id,satisfaction` and no dataframe index column.
-- [ ] Reload the written CSV and verify 299,844 rows, exact test ID sequence, unique IDs, no missing/infinite predictions, and every probability in [0, 1].
-- [ ] Add/run a small synthetic export check that fails on malformed schema, duplicate/misaligned IDs, and out-of-range/nonfinite probabilities. Do not replace the real-file checks with synthetic checks alone.
-- [ ] Verify the source CSV fingerprints remain unchanged and `git status` shows no raw data, fitted models, or predictions staged for publication.
+- [x] Freeze final feature definitions, preprocessing, hyperparameters, seed, and iteration count using local validation evidence only.
+- [x] Refit the chosen preprocessing/model on all training rows. The fixed 200-iteration policy came from the two validation fits; the outer validation data was not reused for early stopping.
+- [x] Save the fitted pipeline/model and run metadata locally. A clean interpreter reloaded the artifact successfully; the synthetic probability comparison was exact and the full submission comparison stayed within floating-point CSV round-trip precision.
+- [x] Predict satisfaction probabilities for every test row in original test order. The export contains positive-class probabilities, not labels or negative-class probabilities.
+- [x] Write `artifacts/submission.csv` with exactly `id,satisfaction` and no dataframe index column.
+- [x] Reload the written CSV and verify 299,844 rows, exact test ID sequence, unique IDs, no missing/infinite predictions, and every probability in [0, 1].
+- [x] Add/run a small synthetic export check that fails on malformed schema, duplicate/misaligned IDs, and out-of-range/nonfinite probabilities. Real-file checks also passed.
+- [x] Verify the source CSV fingerprints remained unchanged and `git status` shows no raw data, fitted models, or predictions staged for publication.
 
 Exit check: a real, locally validated prediction artifact exists and its generating run is reproducible. No upload has occurred.
 
 ## Phase 7 — Validate implementation and hand off
 
-- [ ] Run quality gates in order: format, lint, typecheck, test. Use minimal project-local tooling/configuration where missing; keep checks focused on implemented source and tests, not source-data formatting.
-- [ ] Rerun the runnable regression check and the documented training/export command after the final code change. Report real outputs and any unrun/failed step explicitly.
-- [ ] Review the final diff for scope, credentials, accidental data exposure, leakage, unused experimental code, and dependency additions.
-- [ ] Record exact reproduction commands, environment versions, selected settings, measured validation results/runtime, and the prediction artifact path. Use existing documentation rather than creating a separate design/report document.
-- [ ] Present results and remaining uncertainties to the user. Commit and push only if separately requested, with ignored data/artifacts excluded.
+- [x] Run quality gates in order: format, lint, typecheck, test. Use minimal project-local tooling/configuration where missing; keep checks focused on implemented source and tests, not source-data formatting.
+- [x] Rerun the runnable regression check and the documented training/export command after the final code change. The final run passed and its real outputs are recorded in `approach.md`.
+- [x] Review the final diff for scope, credentials, accidental data exposure, leakage, unused experimental code, and dependency additions.
+- [x] Record exact reproduction commands, environment versions, selected settings, measured validation results/runtime, and the prediction artifact path. Existing documentation was updated; no separate design/report file was created.
+- [x] Present results and remaining uncertainties to the user. Changes remain uncommitted; no push or publication occurred.
 
 Exit check: working code and prediction artifact are backed by actual execution, with no unsupported success claims.
 

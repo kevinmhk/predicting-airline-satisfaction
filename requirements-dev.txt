@@ -1,0 +1,6 @@
+-r requirements.txt
+mypy==1.13.0
+mypy-extensions==1.1.0
+ruff==0.8.4
+tomli==2.5.0
+typing-extensions==4.16.0

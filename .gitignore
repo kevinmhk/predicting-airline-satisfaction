@@ -1,1 +1,6 @@
 /data/
+/.venv/
+/.mypy_cache/
+/.ruff_cache/
+__pycache__/
+/artifacts/
