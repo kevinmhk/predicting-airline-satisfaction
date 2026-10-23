@@ -14,6 +14,7 @@ import pandas as pd
 from catboost import CatBoostClassifier
 
 import compare as compare_module
+import lightgbm_experiment as lightgbm_module
 from compare import (
     _fit_catboost,
     _refit_winner,
@@ -21,6 +22,19 @@ from compare import (
     make_catboost_internal_split,
     prepare_catboost_frame,
     run_deeper_catboost,
+)
+from lightgbm_experiment import (
+    _artifact_snapshot,
+    _fit_callbacks,
+    _fit_with_inner_validation,
+    _fresh_reload_predictions,
+    _selected_iterations,
+    _selection,
+    _terminal_summary,
+    build_lightgbm_classifier,
+    fit_category_levels,
+    prepare_lightgbm_frame,
+    run_experiment,
 )
 from train import (
     CATEGORICAL_COLUMNS,
@@ -124,6 +138,331 @@ class TrainContractTests(unittest.TestCase):
                 depth=8,
             ).get_params()["depth"],
             8,
+        )
+
+    def test_lightgbm_native_frame_aligns_categories_and_preserves_nan(self) -> None:
+        train, test = synthetic_frames()
+        spec = validate_inputs(train, test)
+        features = train[list(spec.feature_columns)]
+        levels = fit_category_levels(features, spec)
+        train_frame = prepare_lightgbm_frame(features, spec, levels)
+        test_frame = prepare_lightgbm_frame(test, spec, levels)
+
+        self.assertEqual(list(train_frame.columns), list(spec.feature_columns))
+        self.assertNotIn("id", train_frame.columns)
+        self.assertNotIn("satisfaction", train_frame.columns)
+        self.assertIsInstance(train_frame["Gender"].dtype, pd.CategoricalDtype)
+        self.assertTrue(pd.isna(test_frame.loc[0, "Gender"]))
+        self.assertTrue(pd.isna(test_frame.loc[1, "Arrival Delay in Minutes"]))
+
+    def test_lightgbm_native_fit_reload_and_class_one_probabilities(self) -> None:
+        train, test = synthetic_frames()
+        spec = validate_inputs(train, test)
+        features = train[list(spec.feature_columns)]
+        y = train["satisfaction"].astype(int).to_numpy()
+        model = build_lightgbm_classifier(
+            n_estimators=20,
+            min_child_samples=2,
+            num_leaves=7,
+        )
+        levels, _, details = _fit_with_inner_validation(
+            model,
+            features,
+            y,
+            np.arange(10, dtype=np.int64),
+            np.arange(10, 12, dtype=np.int64),
+            spec,
+            callbacks=_fit_callbacks(),
+        )
+        predictions = model.predict_proba(prepare_lightgbm_frame(test, spec, levels))[
+            :, 1
+        ]
+        validate_probabilities(predictions, len(test))
+        self.assertGreaterEqual(details["best_iteration"], 1)
+
+        with TemporaryDirectory() as directory:
+            directory_path = Path(directory)
+            model_path = directory_path / "model.txt"
+            spec_path = directory_path / "feature_spec.json"
+            model.booster_.save_model(model_path)
+            compare_module.save_json(
+                spec_path,
+                {
+                    "categorical_columns": list(spec.categorical_columns),
+                    "category_levels": levels,
+                },
+            )
+            reloaded = _fresh_reload_predictions(
+                model_path,
+                spec_path,
+                test[list(spec.feature_columns)],
+            )
+
+        np.testing.assert_allclose(predictions, reloaded, rtol=0, atol=1e-12)
+
+    def test_lightgbm_registers_only_auc_for_binary_training(self) -> None:
+        train, test = synthetic_frames()
+        spec = validate_inputs(train, test)
+        features = train[list(spec.feature_columns)]
+        y = train["satisfaction"].astype(int).to_numpy()
+        model = build_lightgbm_classifier(
+            n_estimators=20,
+            min_child_samples=2,
+            num_leaves=7,
+        )
+
+        _fit_with_inner_validation(
+            model,
+            features,
+            y,
+            np.arange(10, dtype=np.int64),
+            np.arange(10, 12, dtype=np.int64),
+            spec,
+            callbacks=_fit_callbacks(),
+        )
+
+        self.assertEqual(model.get_params()["metric"], "auc")
+        self.assertEqual(
+            set(model.evals_result_["inner_validation"]),
+            {"auc"},
+        )
+
+    def test_lightgbm_initialization_failure_persists_fresh_error(self) -> None:
+        with TemporaryDirectory() as directory:
+            directory_path = Path(directory)
+            data_dir = directory_path / "missing-data"
+            artifacts_dir = directory_path / "artifacts"
+
+            with self.assertRaisesRegex(FileNotFoundError, "train.csv"):
+                run_experiment(data_dir, artifacts_dir)
+
+            metadata = json.loads(
+                (artifacts_dir / "lightgbm" / "compare_metadata.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(metadata["status"], "failed")
+            self.assertEqual(metadata["error"]["type"], "FileNotFoundError")
+            self.assertIn("train.csv", metadata["error"]["message"])
+
+    def test_lightgbm_cli_failure_summary_uses_caught_error(self) -> None:
+        error = RuntimeError("fresh initialization failure")
+        with TemporaryDirectory() as directory:
+            artifacts_dir = Path(directory) / "artifacts"
+            stale_path = artifacts_dir / "lightgbm" / "compare_metadata.json"
+            stale_path.parent.mkdir(parents=True)
+            stale_path.write_text(
+                json.dumps(
+                    {
+                        "status": "completed",
+                        "selection": {"decision": "stale"},
+                        "final": {"submission_path": "stale.csv"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.object(lightgbm_module, "run_experiment", side_effect=error),
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    ["lightgbm_experiment.py", "--artifacts-dir", str(artifacts_dir)],
+                ),
+            ):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    with self.assertRaisesRegex(RuntimeError, str(error)):
+                        lightgbm_module.main()
+
+        summary = json.loads(output.getvalue())
+        self.assertEqual(summary["status"], "failed")
+        self.assertEqual(
+            summary["error"], {"type": "RuntimeError", "message": str(error)}
+        )
+
+    def test_lightgbm_integrity_failure_is_raised_after_metadata_persisted(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            data_dir, artifacts_dir = self._write_deeper_fixture(Path(directory))
+
+            def fake_fit(
+                *args: object, **kwargs: object
+            ) -> tuple[dict[str, list[str]], float, dict[str, object]]:
+                return (
+                    {},
+                    0.0,
+                    {
+                        "best_iteration": 1,
+                        "actual_iterations": 1,
+                        "resources": {},
+                    },
+                )
+
+            validation_count = 0
+
+            def fake_validation(
+                *args: object, **kwargs: object
+            ) -> tuple[np.ndarray, dict[str, object]]:
+                nonlocal validation_count
+                validation_count += 1
+                holdout_indices = np.asarray(args[3], dtype=np.int64)
+                return np.full(len(holdout_indices), 0.5), {
+                    "split_seed": 42 if validation_count == 1 else 2024,
+                    "roc_auc": 0.5,
+                    "log_loss": 0.7,
+                    "best_iteration": 1,
+                    "actual_iterations": 1,
+                }
+
+            with (
+                mock.patch.object(
+                    lightgbm_module, "_fit_with_inner_validation", side_effect=fake_fit
+                ),
+                mock.patch.object(
+                    lightgbm_module,
+                    "_validation_result",
+                    side_effect=fake_validation,
+                ),
+                mock.patch.object(
+                    lightgbm_module,
+                    "_protected_hashes",
+                    return_value={"changed.txt": "changed"},
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "fingerprint changed"):
+                    run_experiment(data_dir, artifacts_dir)
+
+            metadata = json.loads(
+                (artifacts_dir / "lightgbm" / "compare_metadata.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(metadata["status"], "failed")
+            self.assertIn("fingerprint changed", metadata["error"]["message"])
+
+    def test_lightgbm_protects_every_existing_artifact_file(self) -> None:
+        with TemporaryDirectory() as directory:
+            artifacts_dir = Path(directory) / "artifacts"
+            output_dir = artifacts_dir / "lightgbm"
+            for relative_path in (
+                Path("root.txt"),
+                Path("challengers") / "model.txt",
+                Path("deeper_catboost") / "metadata.json",
+                Path("lightgbm_dual_metric_review") / "compare_metadata.json",
+            ):
+                path = artifacts_dir / relative_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(relative_path.as_posix(), encoding="utf-8")
+            output_dir.mkdir(parents=True)
+            (output_dir / "new-run.json").write_text("new", encoding="utf-8")
+
+            before = _artifact_snapshot(artifacts_dir, output_dir)
+            after = lightgbm_module._protected_hashes(
+                artifacts_dir, set(before), output_dir
+            )
+
+            self.assertEqual(after, before)
+            self.assertIn("deeper_catboost/metadata.json", before)
+            self.assertIn("lightgbm_dual_metric_review/compare_metadata.json", before)
+            self.assertNotIn("lightgbm/new-run.json", before)
+
+    def test_lightgbm_smoke_uses_disjoint_inner_subsets(self) -> None:
+        with TemporaryDirectory() as directory:
+            data_dir, artifacts_dir = self._write_deeper_fixture(Path(directory))
+            fit_calls: list[tuple[np.ndarray, np.ndarray]] = []
+
+            def fake_fit(
+                *args: object, **kwargs: object
+            ) -> tuple[dict[str, list[str]], float, dict[str, object]]:
+                fit_indices = np.asarray(args[3], dtype=np.int64)
+                validation_indices = np.asarray(args[4], dtype=np.int64)
+                fit_calls.append((fit_indices.copy(), validation_indices.copy()))
+                return (
+                    {},
+                    0.0,
+                    {
+                        "best_iteration": 1,
+                        "actual_iterations": 1,
+                        "resources": {},
+                    },
+                )
+
+            validation_count = 0
+
+            def fake_validation(
+                *args: object, **kwargs: object
+            ) -> tuple[np.ndarray, dict[str, object]]:
+                nonlocal validation_count
+                validation_count += 1
+                holdout_indices = np.asarray(args[3], dtype=np.int64)
+                return np.full(len(holdout_indices), 0.5), {
+                    "split_seed": 42 if validation_count == 1 else 2024,
+                    "roc_auc": 0.5,
+                    "log_loss": 0.7,
+                    "best_iteration": 1,
+                    "actual_iterations": 1,
+                }
+
+            with (
+                mock.patch.object(
+                    lightgbm_module, "_fit_with_inner_validation", side_effect=fake_fit
+                ),
+                mock.patch.object(
+                    lightgbm_module,
+                    "_validation_result",
+                    side_effect=fake_validation,
+                ),
+            ):
+                metadata = run_experiment(data_dir, artifacts_dir)
+
+            smoke_fit, smoke_validation = fit_calls[0]
+            recorded = metadata["recorded_splits"]["outer"]
+            inner_fit = set(recorded["inner_fit_indices"])
+            inner_validation = set(recorded["inner_validation_indices"])
+            self.assertTrue(set(smoke_fit).issubset(inner_fit))
+            self.assertTrue(set(smoke_validation).issubset(inner_validation))
+            self.assertFalse(set(smoke_fit) & set(smoke_validation))
+
+    def test_lightgbm_refit_iterations_use_one_based_best_iteration(self) -> None:
+        results = [{"best_iteration": 4}, {"best_iteration": 8}]
+        self.assertEqual(_selected_iterations(results), 6)
+        self.assertEqual(
+            build_lightgbm_classifier(
+                n_estimators=_selected_iterations(results)
+            ).get_params()["n_estimators"],
+            6,
+        )
+
+    def test_lightgbm_rejection_and_terminal_summary_are_branch_safe(self) -> None:
+        validation = [
+            {
+                "split_seed": 42,
+                "roc_auc": 0.9574,
+                "log_loss": 0.23,
+                "best_iteration": 100,
+                "actual_iterations": 100,
+            },
+            {
+                "split_seed": 2024,
+                "roc_auc": 0.9578,
+                "log_loss": 0.23,
+                "best_iteration": 101,
+                "actual_iterations": 101,
+            },
+        ]
+        baseline = [
+            {"split_seed": 42, "roc_auc": 0.9573498661, "log_loss": 0.23},
+            {"split_seed": 2024, "roc_auc": 0.9577455323, "log_loss": 0.23},
+        ]
+        selection = _selection(validation, baseline)
+        self.assertFalse(selection["qualifies"])
+        self.assertEqual(selection["decision"], "retain_catboost")
+        summary = _terminal_summary(
+            {"status": "failed", "selection": None, "final": None}
+        )
+        self.assertEqual(
+            set(summary), {"status", "selection", "final", "error", "total_seconds"}
         )
 
     def test_catboost_native_frame_handles_unknown_category_and_numeric_nan(

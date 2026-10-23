@@ -2,7 +2,7 @@
 
 ## Status and objective
 
-The VPS-only implementation and local training/export run completed on 2026-10-23. A bounded challenger experiment completed locally on 2026-10-24 HKT (2026-10-23 UTC). Real validation results and artifact paths are recorded below. No competition submission was uploaded.
+The VPS-only implementation and local training/export run completed on 2026-10-23. Bounded challenger experiments completed locally on 2026-10-24 HKT (2026-10-23 UTC), including one LightGBM experiment recorded below. Real validation results and artifact paths are recorded below. No competition submission was uploaded.
 
 Predict the probability of passenger satisfaction for each test row. Optimize ROC AUC. Start with a reproducible CPU baseline, then compare boosted trees on identical validation rows. Execution tasks are in [plan.md](plan.md); no separate architecture document is needed.
 
@@ -158,6 +158,84 @@ ordinary fit failure persistence, input/protected-artifact finalization, and the
 completed-rejected and timeout CLI summaries. The completed depth-8 rejection
 artifacts above were not rerun or modified; no model training is required for
 these checks.
+
+## Bounded LightGBM experiment
+
+On 2026-10-24 HKT, the user authorized one bounded LightGBM experiment after
+the prior CatBoost work. The first completed run used the same one native
+`lightgbm.LGBMClassifier` configuration, but its binary objective registered
+both AUC and `binary_logloss` even though `eval_metric="auc"` was passed.
+That run is not authoritative for the stopping-policy review. Its files were
+preserved unchanged by renaming `artifacts/lightgbm/` to
+`artifacts/lightgbm_dual_metric_review/`; they were not deleted or edited.
+
+The corrected run below used an external 900-second hard timeout. It used one
+native configuration only; there was no sweep, feature engineering, ensemble,
+or submission. Numerical thread limits were set before importing NumPy,
+pandas, or LightGBM. The environment installed only `lightgbm==4.6.0` into
+`.venv` with `--no-cache-dir`, and the pin is in `requirements.txt`.
+
+The corrected predeclared configuration was `objective=binary`, `metric=auc`,
+`n_estimators=1500`, `learning_rate=0.04`, `num_leaves=31`, `max_depth=-1`,
+`min_child_samples=40`, `reg_lambda=1`, `subsample=1`,
+`colsample_bytree=1`, `random_state=42`, `n_jobs=2`, `deterministic=true`,
+`force_col_wise=true`, and `verbosity=-1`. Each validation fit used AUC with
+`early_stopping(100)` and `log_evaluation(0)` callbacks. A synthetic fit
+verified that `evals_result_` contains only `auc`; the callback's
+`first_metric_only=false` is therefore harmless because there is only one
+registered metric. Category levels were fit from the inner training rows only;
+unseen categories aligned to missing categorical values, categorical missing
+values remained missing, and numeric NaNs remained numeric NaNs. `id` and
+`satisfaction` were excluded.
+
+The existing recorded outer fit/holdout arrays for seeds 42 and 2024 were
+reused. Each LightGBM fit used the exact CatBoost depth-6 inner 90/10 split
+from `artifacts/challengers/compare_metadata.json` for early stopping. The
+outer holdout was never passed as `eval_set`.
+
+| Split seed | Depth-6 CatBoost AUC | LightGBM AUC | Gain | Log loss | Best / actual iterations | Fit seconds |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 42 | 0.9573498661 | 0.9574892899 | +0.0001394238 | 0.2310565310 | 879 / 879 | 34.422 |
+| 2024 | 0.9577455323 | 0.9576973220 | -0.0000482102 | 0.2298882161 | 783 / 783 | 28.837 |
+
+The corrected smoke fit used 20,000 recorded inner-fit rows and 2,000
+recorded inner-validation rows, with disjoint subsets. It completed in 0.570
+seconds with 219 trees. Process high-water RSS was 972.9 MB after the first
+fit and 1042.9 MB after the second; these are process-level measurements, not
+isolated model allocations. CPU count and configured thread limit were both
+two. Total elapsed time was 78.976 seconds. The authoritative metadata is
+[artifacts/lightgbm/compare_metadata.json](../artifacts/lightgbm/compare_metadata.json), with validation predictions at
+`artifacts/lightgbm/validation_lightgbm_seed42.csv` and
+`artifacts/lightgbm/validation_lightgbm_seed2024.csv`.
+
+The candidate was rejected because neither split met the predeclared minimum
+gain of 0.0002 AUC. The decision was to retain the existing depth-6 CatBoost
+candidate. No all-row LightGBM refit, native model, feature spec, or
+`submission_lightgbm.csv` was created. The metadata records the completed
+rejection, both validation results, input hashes before/after, source/version
+and configuration hashes, the single-metric policy, fit resources, and
+protected-artifact hashes. The fixed pre-existing artifact snapshot contained
+24 files, including `deeper_catboost/` and the
+`lightgbm_dual_metric_review/` archive; all before/after hashes matched.
+
+The LightGBM run was validated with these final source-gate and run commands:
+
+```text
+.venv/bin/ruff format lightgbm_experiment.py test_train.py
+.venv/bin/ruff check lightgbm_experiment.py test_train.py
+.venv/bin/mypy lightgbm_experiment.py test_train.py
+.venv/bin/python -m unittest -v test_train.py
+/usr/bin/timeout --signal=TERM --kill-after=30s 900s .venv/bin/python lightgbm_experiment.py --data-dir data --artifacts-dir artifacts
+```
+
+The full test module ran 27 tests successfully. Input SHA-256 values remained
+`train.csv` `2313b65c74e6994f01c2628aae82d2f97aa6f74a81950172ff83864837c98b36`
+and `test.csv`
+`ff7932747f27c5274de904194ac38b4d088ea4f9bb005ae74f0d619fb893a9b6`; the
+metadata reports protected baseline artifacts unchanged. The user-reported
+public CatBoost result of AUC `0.95797`, rank `2225` remains separate from
+these local validation scores and was not used for this decision. No agent
+submission, commit, push, or publication occurred.
 
 ## Observed local data
 

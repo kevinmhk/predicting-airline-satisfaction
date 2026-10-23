@@ -79,6 +79,8 @@ Exit check: both models have directly comparable measured results, with a provis
 - [ ] Optional: evaluate a simple blend using validation predictions aligned by row ID. Keep it only if it beats the best component consistently; skip stacking infrastructure.
 - [x] Select the challenger using local evidence and the predeclared two-seed rule. CatBoost qualified with AUC gains of 0.000549887 and 0.000533392 over the original HGB and was selected among qualifying challengers. The original model-selection policy and root `artifacts/` baseline remain unchanged; LightGBM, feature engineering, and ensembles were skipped.
 - [x] Run the separately authorized single deeper CatBoost experiment with only `depth=8` changed from the existing depth-6 configuration. On seeds 42 and 2024, gains versus prior depth-6 CatBoost were `+0.0000541864` and `-0.0000598357`; the `0.0002`-each-seed gate was not met. Retain the prior depth-6 candidate and create no new final candidate. Exact results and provenance are in `artifacts/deeper_catboost/compare_metadata.json` and `approach.md`.
+- [x] Run the initial bounded native LightGBM experiment with the predeclared 1500-tree configuration. Review found that the binary objective registered both AUC and `binary_logloss`; preserve its files unchanged in `artifacts/lightgbm_dual_metric_review/` as the invalid stopping-policy run.
+- [x] Rerun the corrected LightGBM configuration with explicit `metric=auc`, recorded CatBoost inner splits, disjoint smoke subsets, and a 0.0002 AUC gain gate on both seeds. The authoritative run measured gains of `+0.0001394238` and `-0.0000482102`, so it was rejected; exact results and provenance are in `artifacts/lightgbm/compare_metadata.json` and `approach.md`.
 
 ### Optional higher-compute extension — before final selection
 
@@ -110,6 +112,7 @@ Exit check: the selected method has confirmation beyond a single favorable holdo
 - [x] Reload the written CSV and verify 299,844 rows, exact test ID sequence, unique IDs, no missing/infinite predictions, and every probability in [0, 1].
 - [x] Add/run a small synthetic export check that fails on malformed schema, duplicate/misaligned IDs, and out-of-range/nonfinite probabilities. Real-file checks also passed.
 - [x] Verify the source CSV fingerprints remained unchanged and `git status` shows no raw data, fitted models, or predictions staged for publication.
+- [x] Record the corrected rejected LightGBM result without creating a final LightGBM model or submission; retain the prior depth-6 CatBoost candidate and preserve the invalid first-run archive.
 
 Exit check: a real, locally validated prediction artifact exists and its generating run is reproducible. No upload has occurred.
 
@@ -117,6 +120,7 @@ Exit check: a real, locally validated prediction artifact exists and its generat
 
 - [x] Run quality gates in order: format, lint, typecheck, test. Use minimal project-local tooling/configuration where missing; keep checks focused on implemented source and tests, not source-data formatting.
 - [x] Rerun the runnable regression check and the documented baseline/challenger commands after the final code change. The follow-up wrapper regression checks are synthetic only: ordinary failure persistence, protected-artifact finalization, and completed-rejected/timeout CLI summaries. No depth-8 model rerun was needed; completed results remain preserved.
+- [x] Run the final LightGBM source gates and one externally bounded corrected real experiment. The candidate completed and was rejected on both fixed seeds; no final LightGBM refit or submission was produced. The first dual-metric run remains archived and unchanged.
 - [x] Review the final diff for scope, credentials, accidental data exposure, leakage, unused experimental code, and dependency additions.
 - [x] Record exact reproduction commands including `compare.py`, environment versions, selected settings, measured validation results/runtime, protected baseline fingerprints, and challenger artifact paths. Existing documentation was updated; no separate design/report file was created.
 - [x] Present results and remaining uncertainties to the user. Changes remain uncommitted; no push or publication occurred.
