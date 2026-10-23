@@ -79,6 +79,24 @@ Exit check: both models have directly comparable measured results, with a provis
 - [ ] Optional: evaluate a simple blend using validation predictions aligned by row ID. Keep it only if it beats the best component consistently; skip stacking infrastructure.
 - [ ] Select the final model/settings using local evidence and available time. Record why discarded alternatives were not kept.
 
+### Optional higher-compute extension — before final selection
+
+Run only after Phases 3–4 have measured results, Mac access is confirmed, execution/transfer is authorized, and time permits. Every task below is optional. If the gate is not met, record the skip reason and continue directly to Phase 6 with the VPS-selected model.
+
+- [ ] Confirm actual Mac CPU, available memory/disk, native ARM64 Python, and package support. Create a separate local environment; do not copy the Linux virtual environment.
+- [ ] Transfer data only through an authorized private route after checking data-access restrictions. Verify input SHA-256 fingerprints and preserve ignored data/artifact paths; never use Git to transfer CSVs.
+- [ ] Reproduce baseline scores on identical split IDs and settings. Record platform/version differences and investigate material discrepancies before comparing new experiments.
+- [ ] Benchmark one representative tree fit for runtime and peak memory. Set explicit wall-clock/trial budgets, concurrent-fit count, and per-fit thread limits; leave CPU/memory headroom rather than launching every trial at once.
+- [ ] Produce five-fold stratified splits shared across shortlisted models. Fit transforms and internal early stopping within each fold's training partition only. Verify each training row receives exactly one out-of-fold prediction and no validation row enters its own fit.
+- [ ] Save row-aligned out-of-fold predictions, per-fold/overall AUC and log loss, settings, runtime, and resource measurements. Compare candidates on the same folds; do not label fold variation a formal confidence interval.
+- [ ] Compare CatBoost and then LightGBM under bounded, incremental configuration searches. Install each only when justified; stop when runtime limits or inconsistent gains make further trials unhelpful.
+- [ ] Repeat promising improvements with another fold seed if the budget permits. Preserve the original holdout results as a reference, not a claim of independent evidence after repeated tuning.
+- [ ] Measure held-out permutation importance and inspect adequately sized travel-type, cabin-class, loyalty, and age-band error slices. Record correlated-feature and noncausal interpretation limits.
+- [ ] Reuse the existing conditional rating-encoding, feature-aggregate, and original-source-data tasks; do not create duplicate experiment pipelines or bypass their access/validation checks.
+- [ ] Test a simple blend using aligned out-of-fold predictions from complementary models. Restrict weight search and confirm its gain on another seed or an untouched confirmation split; retain a single model if improvement is not repeatable.
+- [ ] Optional learning experiment: confirm PyTorch MPS availability/operation support, smoke-test a small tabular network, and benchmark it against CPU and the tree baseline. Use training-only preprocessing/early stopping, cap training time, and skip if neither learning value nor predictive complementarity justifies it. Do not assume CatBoost/LightGBM use the Apple GPU.
+- [ ] Record measured results or explicit skip reasons in `approach.md`. Select the final method before Phase 6; do not make Mac experiments a delivery prerequisite or spend submission time on an unfinished search.
+
 Exit check: the selected method has confirmation beyond a single favorable holdout; optional work is either measured or explicitly skipped, with no promised leaderboard outcome.
 
 ## Phase 6 — Refit and generate a validated prediction file
