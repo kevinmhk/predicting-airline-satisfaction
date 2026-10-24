@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import unittest
 from collections.abc import Callable
 from pathlib import Path
@@ -20,6 +21,7 @@ import blend_experiment as blend_module
 import compare as compare_module
 import feature_experiment as feature_module
 import lightgbm_experiment as lightgbm_module
+import longer_catboost as longer_catboost_module
 from blend_experiment import aligned_blend_predictions, confirmation_gate
 from compare import (
     _fit_catboost,
@@ -235,6 +237,54 @@ class TrainContractTests(unittest.TestCase):
         self.assertTrue(confirmation_gate(0.95, 0.9501, 0.9502))
         self.assertFalse(confirmation_gate(0.95, 0.949, 0.9501))
         self.assertFalse(confirmation_gate(0.95, 0.9502, 0.9502))
+
+    def test_longer_baseline_aligns_reordered_saved_catboost_ids(self) -> None:
+        train, _ = synthetic_frames()
+        frame = longer_catboost_module._validation_frame(
+            train,
+            np.array([0, 1, 2]),
+            np.array([0.3, 0.1, 0.2]),
+            [0, 1, 2],
+            np.array([0.4, 0.5, 0.6]),
+            catboost_ids=[2, 0, 1],
+        )
+        np.testing.assert_allclose(frame["catboost_probability"], [0.1, 0.2, 0.3])
+        np.testing.assert_allclose(frame["blend_probability"], [0.25, 0.35, 0.45])
+
+    def test_longer_catboost_changes_only_iteration_cap(self) -> None:
+        model = longer_catboost_module.build_longer_catboost_classifier()
+        settings = model.get_params()
+        self.assertEqual(settings["iterations"], 3000)
+        self.assertEqual(settings["depth"], 6)
+        self.assertEqual(settings["learning_rate"], 0.06)
+        self.assertEqual(settings["l2_leaf_reg"], 3.0)
+        self.assertEqual(settings["loss_function"], "Logloss")
+        self.assertEqual(settings["eval_metric"], "AUC")
+        self.assertEqual(settings["random_seed"], 42)
+        self.assertEqual(settings["thread_count"], 2)
+        self.assertFalse(settings["allow_writing_files"])
+        self.assertEqual(settings["early_stopping_rounds"], 100)
+
+    def test_longer_blend_gate_requires_both_seed_gains(self) -> None:
+        accepted = longer_catboost_module.blend_gate(
+            {42: 0.957713923393243, 2024: 0.9580214315945633},
+            {42: 0.957923923393243, 2024: 0.9582314315945633},
+        )
+        self.assertTrue(accepted["qualifies"])
+        rejected = longer_catboost_module.blend_gate(
+            {42: 0.957713923393243, 2024: 0.9580214315945633},
+            {42: 0.957923923393243, 2024: 0.9582204315945633},
+        )
+        self.assertFalse(rejected["qualifies"])
+        self.assertEqual(rejected["decision"], "retain_current_blend")
+
+    def test_longer_refit_count_uses_median_one_based_best_counts(self) -> None:
+        results = [
+            {"best_iteration": 1170},
+            {"best_iteration": 1199},
+            {"best_iteration": 1420},
+        ]
+        self.assertEqual(longer_catboost_module.selected_iterations(results), 1200)
 
     def test_blend_cli_reports_new_schema_failure_without_stale_success(self) -> None:
         error = ValueError("new schema failure")
@@ -592,6 +642,32 @@ class TrainContractTests(unittest.TestCase):
                 [1, 2],
             )
 
+    def test_blend_reuse_resolves_project_relative_paths_outside_cwd(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir, artifacts_dir, hashes = self._write_blend_reuse_fixture(root)
+            spec = validate_inputs(
+                pd.read_csv(data_dir / "train.csv"), pd.read_csv(data_dir / "test.csv")
+            )
+            path = artifacts_dir / "challengers" / "compare_metadata.json"
+            metadata = json.loads(path.read_text())
+            metadata["final"]["model_path"] = (
+                "artifacts/challengers/final_model_catboost.cbm"
+            )
+            metadata["final"]["feature_spec_path"] = (
+                "artifacts/challengers/feature_spec.json"
+            )
+            compare_module.save_json(path, metadata)
+            outside_project = root / "outside-project"
+            outside_project.mkdir()
+            with mock.patch.object(Path, "cwd", return_value=outside_project):
+                self.assertEqual(
+                    blend_module._validate_reused_artifacts(
+                        artifacts_dir.resolve(), hashes, spec
+                    ),
+                    [1, 2],
+                )
+
     def test_blend_repeated_metadata_write_failure_preserves_fit_error(self) -> None:
         with TemporaryDirectory() as directory:
             self._write_blend_reuse_fixture(Path(directory))
@@ -617,6 +693,135 @@ class TrainContractTests(unittest.TestCase):
                         Path(directory), lambda: None, original
                     )
             self.assertIs(raised.exception, original)
+
+    def test_longer_timeout_installs_and_restores_signal_state_on_failure(self) -> None:
+        original_alarm = object()
+        original_term = object()
+        original_timer = (12.0, 3.0)
+        failure = RuntimeError("synthetic initialization failure")
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifacts_dir = root / "artifacts"
+            with (
+                mock.patch.object(
+                    longer_catboost_module.signal,
+                    "getitimer",
+                    return_value=original_timer,
+                ),
+                mock.patch.object(
+                    longer_catboost_module.signal,
+                    "getsignal",
+                    side_effect=[original_alarm, original_term],
+                ),
+                mock.patch.object(
+                    longer_catboost_module.signal, "signal"
+                ) as signal_setter,
+                mock.patch.object(
+                    longer_catboost_module.signal, "setitimer"
+                ) as timer_setter,
+                mock.patch.object(
+                    longer_catboost_module, "_dependencies", side_effect=failure
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, str(failure)):
+                    longer_catboost_module.run_experiment(
+                        root / "missing-data", artifacts_dir
+                    )
+
+        signal_calls = signal_setter.call_args_list
+        self.assertEqual(signal_calls[0][0][0], longer_catboost_module.signal.SIGALRM)
+        self.assertEqual(signal_calls[1][0][0], longer_catboost_module.signal.SIGTERM)
+        self.assertIn(
+            mock.call(longer_catboost_module.signal.SIGALRM, original_alarm),
+            signal_calls,
+        )
+        self.assertIn(
+            mock.call(longer_catboost_module.signal.SIGTERM, original_term),
+            signal_calls,
+        )
+        timer_setter.assert_any_call(
+            longer_catboost_module.signal.ITIMER_REAL,
+            longer_catboost_module.EXPERIMENT_TIMEOUT_SECONDS,
+        )
+        timer_setter.assert_any_call(
+            longer_catboost_module.signal.ITIMER_REAL, *original_timer
+        )
+
+    def test_longer_final_metadata_records_postwrite_output_bytes(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir = root / "data"
+            artifacts_dir = root / "artifacts"
+            output_dir = artifacts_dir / "longer_catboost"
+            data_dir.mkdir()
+            artifacts_dir.mkdir()
+            output_dir.mkdir()
+            (data_dir / "train.csv").write_text("train\n", encoding="utf-8")
+            (data_dir / "test.csv").write_text("test\n", encoding="utf-8")
+            (artifacts_dir / "protected.txt").write_text("protected", encoding="utf-8")
+            (output_dir / "validation.csv").write_text("synthetic\n", encoding="utf-8")
+            metadata_path = output_dir / "compare_metadata.json"
+            metadata, caught = longer_catboost_module._finalize(
+                {"status": "completed", "selection": None, "final": None},
+                metadata_path,
+                output_dir,
+                artifacts_dir,
+                data_dir,
+                {
+                    "train.csv": compare_module.sha256_file(data_dir / "train.csv"),
+                    "test.csv": compare_module.sha256_file(data_dir / "test.csv"),
+                },
+                longer_catboost_module._artifact_snapshot(artifacts_dir, output_dir),
+                None,
+                time.perf_counter(),
+            )
+
+            self.assertIsNone(caught)
+            persisted = json.loads(metadata_path.read_text())
+            measured = sum(
+                path.stat().st_size for path in output_dir.rglob("*") if path.is_file()
+            )
+            self.assertEqual(metadata["output_bytes"], measured)
+            self.assertEqual(persisted["output_bytes"], measured)
+            self.assertIn(
+                "protected_baseline_sha256.json",
+                {path.name for path in output_dir.iterdir()},
+            )
+
+    def test_longer_budget_rejects_postwrite_size(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir = root / "data"
+            artifacts_dir = root / "artifacts"
+            output_dir = artifacts_dir / "longer_catboost"
+            data_dir.mkdir()
+            artifacts_dir.mkdir()
+            output_dir.mkdir()
+            (data_dir / "train.csv").write_text("train\n", encoding="utf-8")
+            (data_dir / "test.csv").write_text("test\n", encoding="utf-8")
+            (output_dir / "validation.csv").write_text("synthetic\n", encoding="utf-8")
+            input_hashes = {
+                "train.csv": compare_module.sha256_file(data_dir / "train.csv"),
+                "test.csv": compare_module.sha256_file(data_dir / "test.csv"),
+            }
+            with mock.patch.object(longer_catboost_module, "OUTPUT_BUDGET_BYTES", 1):
+                metadata, caught = longer_catboost_module._finalize(
+                    {"status": "completed", "selection": None, "final": None},
+                    output_dir / "compare_metadata.json",
+                    output_dir,
+                    artifacts_dir,
+                    data_dir,
+                    input_hashes,
+                    longer_catboost_module._artifact_snapshot(
+                        artifacts_dir, output_dir
+                    ),
+                    None,
+                    time.perf_counter(),
+                )
+
+            self.assertIsNotNone(caught)
+            self.assertEqual(metadata["status"], "failed")
+            self.assertIn("budget exceeded", metadata["error"]["message"])
 
     def test_catboost_default_and_requested_depths(self) -> None:
         self.assertEqual(
@@ -1313,6 +1518,52 @@ class TrainContractTests(unittest.TestCase):
                 ).to_csv(path, index=False)
                 with self.assertRaisesRegex(ValueError, "finite"):
                     validate_submission_file(path, test_ids)
+
+    def test_slower_learning_changes_only_learning_rate_cap_and_patience(self) -> None:
+        import slower_learning as slower
+
+        cat = slower.build_slow_catboost().get_params()
+        self.assertEqual(cat["iterations"], 6000)
+        self.assertAlmostEqual(cat["learning_rate"], 0.03)
+        self.assertEqual(cat["depth"], 6)
+        self.assertEqual(cat["l2_leaf_reg"], 3)
+        self.assertEqual(cat["random_seed"], 42)
+
+        light = slower.build_slow_lightgbm().get_params()
+        self.assertEqual(light["n_estimators"], 3000)
+        self.assertAlmostEqual(light["learning_rate"], 0.02)
+        self.assertEqual(light["num_leaves"], 31)
+        self.assertEqual(light["random_state"], 42)
+
+    def test_slower_learning_gate_requires_both_seeds_and_picks_worst_seed(
+        self,
+    ) -> None:
+        import slower_learning as slower
+
+        baseline = {42: 0.90, 2024: 0.90}
+        per_seed = {
+            42: {
+                "original_cat_slow_light": 0.9001,
+                "slow_cat_original_light": 0.9020,
+                "slow_cat_slow_light": 0.9030,
+            },
+            2024: {
+                "original_cat_slow_light": 0.9025,
+                "slow_cat_original_light": 0.9025,
+                "slow_cat_slow_light": 0.9030,
+            },
+        }
+        result = slower.select_candidate(per_seed, baseline)
+        self.assertEqual(result["decision"], "confirm_fresh_split")
+        self.assertEqual(result["selected_candidate"], "slow_cat_slow_light")
+
+        for scores in per_seed.values():
+            for name in scores:
+                scores[name] = 0.9001
+        per_seed[42]["original_cat_slow_light"] = 0.91
+        rejected = slower.select_candidate(per_seed, baseline)
+        self.assertEqual(rejected["decision"], "retain_current_blend")
+        self.assertIsNone(rejected["selected_candidate"])
 
 
 if __name__ == "__main__":

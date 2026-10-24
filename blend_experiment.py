@@ -234,6 +234,22 @@ def _validate_reused_artifacts(
     artifacts_dir: Path, input_hashes: dict[str, str], spec: Any
 ) -> list[int]:
     """Validate provenance and configuration before reusing prior artifacts."""
+
+    def recorded_path_matches(value: Any, expected: Path) -> bool:
+        raw = Path(str(value))
+        candidates = (
+            (raw,)
+            if raw.is_absolute()
+            else (
+                artifacts_dir.parent / raw,
+                artifacts_dir / raw,
+                Path.cwd() / raw,
+            )
+        )
+        return any(
+            candidate.resolve() == expected.resolve() for candidate in candidates
+        )
+
     challengers_dir = artifacts_dir / "challengers"
     cat_metadata = json.loads(
         (challengers_dir / "compare_metadata.json").read_text(encoding="utf-8")
@@ -280,16 +296,12 @@ def _validate_reused_artifacts(
         raise ValueError("CatBoost metadata is missing the reusable native final model")
     if cat_final.get("model") != "catboost_native":
         raise ValueError("CatBoost final artifact is not the native catboost model")
-    if (
-        Path(str(cat_final.get("model_path", ""))).resolve()
-        != expected_catboost_model.resolve()
-    ):
+    if not recorded_path_matches(cat_final.get("model_path"), expected_catboost_model):
         raise ValueError(
             "CatBoost final model path is not the expected native artifact"
         )
-    if (
-        Path(str(cat_final.get("feature_spec_path", ""))).resolve()
-        != expected_catboost_spec.resolve()
+    if not recorded_path_matches(
+        cat_final.get("feature_spec_path"), expected_catboost_spec
     ):
         raise ValueError(
             "CatBoost final feature spec path is not the expected artifact"

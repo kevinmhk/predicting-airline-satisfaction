@@ -357,6 +357,101 @@ The real experiment used the model code and feature bundle described above. Subs
 /usr/bin/timeout --signal=TERM --kill-after=30s 1500s .venv/bin/python feature_experiment.py --data-dir data --artifacts-dir artifacts
 ```
 
+## Longer CatBoost experiment
+
+On 2026-10-24 HKT, the user authorized one longer-CatBoost experiment. The new
+entry point was `longer_catboost.py`, run with a 2400-second external timeout
+and an internal 40-minute deadline. It changed only the CatBoost iteration cap
+from `1200` to `3000`; depth `6`, learning rate `0.06`, `l2_leaf_reg=3`,
+`Logloss`/`AUC`, seed `42`, patience `100`, two threads, and
+`allow_writing_files=false` were unchanged. Fits were sequential. Existing
+recorded outer arrays, prior CatBoost inner arrays, corrected LightGBM
+validation probabilities, and the fixed 50/50 weights were reused. LightGBM
+was not refit.
+
+| Split seed | Longer CatBoost AUC | Fixed 50/50 blend AUC | Gain vs current blend | Actual / best iteration |
+| ---: | ---: | ---: | ---: | ---: |
+| 42 | 0.9573498661 | 0.9577139234 | +0.0000000000 | 1171 / 1170 |
+| 2024 | 0.9579485233 | 0.9581305578 | +0.0001091262 | 1719 / 1718 |
+
+The predeclared advancement gate required a new blend gain of at least
+`0.0002` on both seeds. It failed on both seeds, so the current blend was
+retained. Fresh seed `31415`, the conditional all-training-row CatBoost refit,
+native model reload, and descriptive final submission were skipped. No loser
+submission was written. The validation artifacts with row IDs and CatBoost,
+reused LightGBM, and blend probabilities are under
+`artifacts/longer_catboost/`; the pre-guard metadata recorded `20,892,065`
+bytes, below the `200 MiB` budget.
+
+Input hashes matched before and after, every pre-existing artifact hash matched,
+and `current_fit`, `fresh_validation`, and `final` are all clear in the
+completed metadata. The run recorded CatBoost fit times of `200.527` seconds
+and `275.663` seconds, with total elapsed time `484.547` seconds. The local
+source gates and regression suite passed with 45 tests before the guard-only
+review fixes:
+
+```text
+.venv/bin/ruff format longer_catboost.py test_train.py
+.venv/bin/ruff check longer_catboost.py test_train.py
+.venv/bin/mypy longer_catboost.py test_train.py
+.venv/bin/python -m unittest -v test_train.py
+/usr/bin/timeout --signal=TERM --kill-after=30s 2400s .venv/bin/python longer_catboost.py --data-dir data --artifacts-dir artifacts
+```
+
+An independent review then identified wrapper-only issues in saved-prediction
+alignment, project-relative artifact paths, timeout cleanup, iteration-count
+reuse, and post-run size accounting. These fixes do not change model settings,
+selected models, validation outputs, or the completed result. The real run was
+not rerun; its artifacts remain byte-identical, and their `source_sha256`
+records remain the historical pre-guard source hashes. The final guard-only
+regression suite passes with 50 tests.
+
+## Slower-learning experiment
+
+On 2026-10-24 HKT the user authorized one slower-learning pass after the
+longer-iteration cap produced no gain. The new entry point was
+`slower_learning.py`. It changed learning rates and caps only: LightGBM
+`0.04 → 0.02` with `1500 → 3000` trees, CatBoost `0.06 → 0.03` with
+`1200 → 6000` iterations, and patience `100 → 200` for each. Depth, leaf
+count, `l2_leaf_reg`, `Logloss`/`AUC`, seeds, and two threads were unchanged.
+Both models were fitted on the recorded outer splits and the existing CatBoost
+inner 90/10 split; the fixed 50/50 weights were reused. Seeds `42` and `2024`
+were used. Three fixed blends were scored against the current blend:
+
+| Blend | Seed 42 gain | Seed 2024 gain |
+| --- | ---: | ---: |
+| original CatBoost + slow LightGBM | -0.0000732 | +0.0000341 |
+| slow CatBoost + original LightGBM | +0.0000803 | +0.0001753 |
+| slow CatBoost + slow LightGBM | +0.0000229 | +0.0001822 |
+
+All three failed the predeclared `0.0002` gain on both seeds, so the current
+blend was retained and no fresh-split confirmation was run. Standalone scores
+show why the components differed: slow CatBoost improved over the original on
+both seeds (`0.9575292` vs `0.9573499`, and `0.9580269` vs `0.9577455`) using
+`4498` and `4982` trees of `6000`, while slow LightGBM was mixed
+(`0.9573779` vs `0.9574893`, and `0.9577325` vs `0.9576973`).
+
+A paired bootstrap over the held-out rows estimated the best blend gain at
+`+0.00008` with standard error `0.000039` on seed 42 and `+0.000175` with
+standard error `0.000041` on seed 2024, with the gain positive in 98% and 100%
+of resamples. The improvement is real but smaller than the gate, which was
+predeclared to prevent chasing unpaired noise.
+
+The user then explicitly authorized exporting that below-gate candidate. The
+slow CatBoost was refit on all training rows at the rounded median one-based
+count `4740` from `4498` and `4982` with early stopping disabled; the existing
+783-tree LightGBM model was reused unchanged. The export is
+`artifacts/slower_learning/submission_slowcat_lightgbm_50_50.csv` with 299,844
+rows in exact test ID order, finite values from `0.0020123` to `0.9929639`.
+Fresh-process reloads matched the in-process component predictions exactly and
+the CSV round-trip difference was `2.22e-16`. The directory holds 32,213,544
+bytes; 43 prior artifact hashes and both input hashes were unchanged. The
+guard-only regression suite passes 52 tests. A first export attempt failed its
+LightGBM reload because the raw test frame including `id` was passed to the
+prediction helper; the model was already fitted and saved, so the refit was
+recovered from that file instead of being repeated, and its fit time is
+recorded as not measured.
+
 ## Observed local data
 
 All three downloaded CSVs were inspected locally. Only aggregate statistics were returned to the conversation.

@@ -82,6 +82,9 @@ Exit check: both models have directly comparable measured results, with a provis
 - [x] Run the initial bounded native LightGBM experiment with the predeclared 1500-tree configuration. Review found that the binary objective registered both AUC and `binary_logloss`; preserve its files unchanged in `artifacts/lightgbm_dual_metric_review/` as the invalid stopping-policy run.
 - [x] Rerun the corrected LightGBM configuration with explicit `metric=auc`, recorded CatBoost inner splits, disjoint smoke subsets, and a 0.0002 AUC gain gate on both seeds. The authoritative run measured gains of `+0.0001394238` and `-0.0000482102`, so it was rejected; exact results and provenance are in `artifacts/lightgbm/compare_metadata.json` and `approach.md`.
 - [x] Refit LightGBM on all rows at the median one-based best-iteration count `783` from prior counts `879,783` plus fresh count `778`, reuse the unchanged CatBoost final artifact, export the fixed 50/50 blend, and verify native-model reloads and CSV round-trip.
+- [x] Run the authorized one longer-CatBoost experiment with only the iteration cap changed from `1200` to `3000`. Reuse the recorded outer/inner arrays and saved corrected LightGBM predictions, require a `0.0002` fixed-blend gain on both seeds, and preserve the current blend when the measured gains were `0.0000000000` and `+0.0001091262`. Fresh confirmation, refit, and final export were skipped; artifacts are under `artifacts/longer_catboost/`.
+- [x] Run the authorized slower-learning pass: LightGBM `0.02`/`3000` trees, CatBoost `0.03`/`6000` iterations, patience `200`, everything else frozen on the recorded splits. All three fixed blends failed the `0.0002` both-seed gate (best `+0.0000803`/`+0.0001753`), so the current blend was retained and no fresh confirmation ran. Standalone slow CatBoost improved on both seeds; slow LightGBM did not. Artifacts are under `artifacts/slower_learning/`.
+- [x] After explicit user authorization, export the below-gate slow-CatBoost candidate: all-row refit at the rounded median one-based count `4740`, reuse of the existing 783-tree LightGBM, and a validated 299,844-row `id,satisfaction` CSV. Fresh-process reloads reproduced the predictions and the CSV round-trip difference was `2.22e-16`. No Kaggle upload was performed.
 
 ### Optional higher-compute extension — before final selection
 
@@ -119,13 +122,15 @@ Exit check: a real, locally validated prediction artifact exists and its generat
 
 ## Phase 7 — Validate implementation and hand off
 
-- [x] Run quality gates in order: format, lint, typecheck, test. Use minimal project-local tooling/configuration where missing; keep checks focused on implemented source and tests, not source-data formatting.
+- [x] Run quality gates in order: format, lint, typecheck, test. Use minimal project-local tooling/configuration where missing; keep checks focused on implemented source and tests, not source-data formatting. The historical longer-CatBoost run passed its source gates and 45 tests; the final guard-only suite passes 50 tests.
 - [x] Rerun the runnable regression check and the documented baseline/challenger commands after the final code change. The follow-up wrapper regression checks are synthetic only: ordinary failure persistence, protected-artifact finalization, and completed-rejected/timeout CLI summaries. No depth-8 model rerun was needed; completed results remain preserved.
 - [x] Run the final LightGBM source gates and one externally bounded corrected real experiment. The candidate completed and was rejected on both fixed seeds; no final LightGBM refit or submission was produced. The first dual-metric run remains archived and unchanged.
 - [x] Run the blend source gates and the externally bounded fresh-split confirmation. The gate passed; final blend outputs and metadata are under `artifacts/blend_50_50/`. No standalone LightGBM submission, upload, commit, or push occurred.
 - [x] After the completed blend run, add only wrapper guard regressions for prior-artifact provenance/configuration and input/protected-artifact failure persistence. No real rerun or artifact modification was performed after this guard-only change.
 - [x] Review the final diff for scope, credentials, accidental data exposure, leakage, unused experimental code, and dependency additions.
 - [x] Record exact reproduction commands including `compare.py`, environment versions, selected settings, measured validation results/runtime, protected baseline fingerprints, and challenger artifact paths. Existing documentation was updated; no separate design/report file was created.
+- [x] Record the longer-CatBoost command, measured two-seed gains, rejected branches, artifact size, input/protected-artifact integrity, and the absence of a final submission in `approach.md`.
+- [x] Apply independent-review wrapper guards for saved-ID alignment, absolute artifact-directory reuse, timeout cleanup, selected-iteration reuse, and post-run budget accounting. Preserve the completed run and all artifacts; do not rerun training.
 - [x] Present results and remaining uncertainties to the user. Changes remain uncommitted; no push or publication occurred.
 
 Exit check: working code and prediction artifact are backed by actual execution, with no unsupported success claims.
