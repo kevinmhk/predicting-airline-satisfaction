@@ -1,9 +1,12 @@
 import contextlib
+import copy
 import io
 import json
+import os
 import subprocess
 import sys
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
@@ -13,8 +16,10 @@ import numpy as np
 import pandas as pd
 from catboost import CatBoostClassifier
 
+import blend_experiment as blend_module
 import compare as compare_module
 import lightgbm_experiment as lightgbm_module
+from blend_experiment import aligned_blend_predictions, confirmation_gate
 from compare import (
     _fit_catboost,
     _refit_winner,
@@ -68,6 +73,51 @@ def synthetic_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 class TrainContractTests(unittest.TestCase):
+    def test_fixed_blend_aligns_by_id_and_uses_half_weights(self) -> None:
+        aligned = aligned_blend_predictions(
+            [1, 2, 3],
+            [3, 1, 2],
+            np.array([0.3, 0.1, 0.2]),
+            [2, 3, 1],
+            np.array([0.5, 0.6, 0.4]),
+        )
+        np.testing.assert_allclose(aligned["catboost_probability"], [0.1, 0.2, 0.3])
+        np.testing.assert_allclose(aligned["lightgbm_probability"], [0.4, 0.5, 0.6])
+        np.testing.assert_allclose(aligned["blend_probability"], [0.25, 0.35, 0.45])
+
+    def test_fixed_blend_rejects_duplicate_or_mismatched_ids(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unique"):
+            aligned_blend_predictions(
+                [1, 1], [1, 1], np.array([0.1, 0.2]), [1, 1], np.array([0.3, 0.4])
+            )
+        with self.assertRaisesRegex(ValueError, "do not match"):
+            aligned_blend_predictions(
+                [1, 2], [1, 3], np.array([0.1, 0.2]), [1, 2], np.array([0.3, 0.4])
+            )
+
+    def test_confirmation_gate_requires_both_fixed_criteria(self) -> None:
+        self.assertTrue(confirmation_gate(0.95, 0.9501, 0.9502))
+        self.assertFalse(confirmation_gate(0.95, 0.949, 0.9501))
+        self.assertFalse(confirmation_gate(0.95, 0.9502, 0.9502))
+
+    def test_blend_cli_reports_new_schema_failure_without_stale_success(self) -> None:
+        error = ValueError("new schema failure")
+        with mock.patch.object(blend_module, "run_experiment", side_effect=error):
+            with mock.patch.object(
+                sys, "argv", ["blend_experiment.py", "--data-dir", "missing"]
+            ):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    with self.assertRaisesRegex(ValueError, str(error)):
+                        blend_module.main()
+        summary = json.loads(output.getvalue())
+        self.assertEqual(summary["status"], "failed")
+        self.assertEqual(summary["selection"], None)
+        self.assertEqual(summary["final"], None)
+        self.assertEqual(
+            summary["error"], {"type": "ValueError", "message": str(error)}
+        )
+
     def _write_deeper_fixture(self, directory: Path) -> tuple[Path, Path]:
         base_train, base_test = synthetic_frames()
         train = pd.concat(
@@ -123,6 +173,314 @@ class TrainContractTests(unittest.TestCase):
             challengers_dir / "compare_metadata.json", prior_metadata
         )
         return data_dir, artifacts_dir
+
+    def _write_blend_reuse_fixture(
+        self, directory: Path
+    ) -> tuple[Path, Path, dict[str, str]]:
+        train, test = synthetic_frames()
+        data_dir = directory / "data"
+        artifacts_dir = directory / "artifacts"
+        challengers_dir = artifacts_dir / "challengers"
+        lightgbm_dir = artifacts_dir / "lightgbm"
+        data_dir.mkdir()
+        challengers_dir.mkdir(parents=True)
+        lightgbm_dir.mkdir()
+        train.to_csv(data_dir / "train.csv", index=False)
+        test.to_csv(data_dir / "test.csv", index=False)
+        spec = validate_inputs(train, test)
+        input_hashes = {
+            "train.csv": compare_module.sha256_file(data_dir / "train.csv"),
+            "test.csv": compare_module.sha256_file(data_dir / "test.csv"),
+        }
+        catboost_config = dict(blend_module._settings()["catboost"])
+        catboost_config.update(
+            {
+                "internal_validation_seed": 42,
+                "internal_validation_fraction": 0.1,
+            }
+        )
+        catboost_model_path = challengers_dir / "final_model_catboost.cbm"
+        catboost_spec_path = challengers_dir / "feature_spec.json"
+        catboost_model_path.write_text("synthetic model", encoding="utf-8")
+        compare_module.save_json(
+            catboost_spec_path,
+            {
+                "feature_columns": list(spec.feature_columns),
+                "numeric_columns": list(spec.numeric_columns),
+                "categorical_columns": list(spec.categorical_columns),
+            },
+        )
+        compare_module.save_json(
+            challengers_dir / "compare_metadata.json",
+            {
+                "input_sha256": input_hashes,
+                "feature_columns": list(spec.feature_columns),
+                "numeric_columns": list(spec.numeric_columns),
+                "categorical_columns": list(spec.categorical_columns),
+                "predeclared_configs": {"catboost_native": catboost_config},
+                "selection": {"selected_candidate": "catboost_native"},
+                "final": {
+                    "model": "catboost_native",
+                    "model_path": str(catboost_model_path),
+                    "feature_spec_path": str(catboost_spec_path),
+                },
+            },
+        )
+        lightgbm_results = [
+            {
+                "candidate": "lightgbm_native",
+                "split_seed": seed,
+                "settings": dict(blend_module.PREDECLARED_CONFIG),
+                "early_stopping": {"eval_metric": "auc"},
+                "best_iteration": count,
+            }
+            for seed, count in ((42, 1), (2024, 2))
+        ]
+        compare_module.save_json(
+            lightgbm_dir / "compare_metadata.json",
+            {
+                "status": "completed",
+                "input_sha256_before": input_hashes,
+                "input_sha256_after": input_hashes,
+                "feature_columns": list(spec.feature_columns),
+                "numeric_columns": list(spec.numeric_columns),
+                "categorical_columns": list(spec.categorical_columns),
+                "predeclared_config": dict(blend_module.PREDECLARED_CONFIG),
+                "metric_policy": {
+                    "configured_metric": "auc",
+                    "early_stopping_metric": "auc",
+                    "registered_metrics": ["auc"],
+                },
+                "validation_results": lightgbm_results,
+            },
+        )
+        return data_dir, artifacts_dir, input_hashes
+
+    def _run_blend_integrity_case(
+        self,
+        directory: Path,
+        mutate: Callable[[], None],
+        original_error: Exception | None = None,
+    ) -> dict[str, object]:
+        data_dir = directory / "data"
+        artifacts_dir = directory / "artifacts"
+        protected_path = artifacts_dir / "protected.txt"
+        protected_path.write_text("original", encoding="utf-8")
+
+        def fake_catboost(
+            *args: object, **kwargs: object
+        ) -> tuple[object, np.ndarray, dict[str, object], dict[str, np.ndarray]]:
+            outer_holdout = np.asarray(args[4]).shape[0]
+            outer_fit = np.asarray(args[3], dtype=np.int64)
+            inner_fit, inner_validation = outer_fit[:-2], outer_fit[-2:]
+            mutate()
+            if original_error is not None:
+                raise original_error
+            return (
+                object(),
+                np.full(outer_holdout, 0.5),
+                {"roc_auc": 0.5, "best_iteration": 0},
+                {"fit_indices": inner_fit, "validation_indices": inner_validation},
+            )
+
+        fake_lgb_model = mock.Mock(evals_result_={"inner_validation": {"auc": []}})
+
+        with (
+            mock.patch.object(blend_module, "_fit_catboost", side_effect=fake_catboost),
+            mock.patch.object(
+                blend_module,
+                "make_catboost_internal_split",
+                side_effect=lambda outer_fit, y, seed: (
+                    np.asarray(outer_fit[:-2]),
+                    np.asarray(outer_fit[-2:]),
+                ),
+            ),
+            mock.patch.object(
+                blend_module,
+                "_fit_with_inner_validation",
+                return_value=(
+                    {},
+                    0.0,
+                    {"best_iteration": 1, "actual_iterations": 1, "resources": {}},
+                ),
+            ),
+            mock.patch.object(
+                blend_module, "build_lightgbm_classifier", return_value=fake_lgb_model
+            ),
+            mock.patch.object(
+                blend_module,
+                "lightgbm_validation_result",
+                return_value=(
+                    np.full(3, 0.5),
+                    {
+                        "best_iteration": 1,
+                        "actual_iterations": 1,
+                        "roc_auc": 0.5,
+                        "log_loss": 0.7,
+                    },
+                ),
+            ),
+            mock.patch.object(
+                blend_module,
+                "_prior_blend_evidence",
+                return_value=[
+                    {"split_seed": 42, "blend_gain_over_catboost": 0.0002},
+                    {"split_seed": 2024, "blend_gain_over_catboost": 0.0002},
+                ],
+            ),
+            mock.patch.object(blend_module, "confirmation_gate", return_value=False),
+        ):
+            blend_module.run_experiment(data_dir, artifacts_dir)
+
+        return json.loads(
+            (artifacts_dir / "blend_50_50" / "compare_metadata.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+    def test_blend_reuse_guards_accept_valid_and_reject_changed_metadata(self) -> None:
+        with TemporaryDirectory() as directory:
+            data_dir, artifacts_dir, input_hashes = self._write_blend_reuse_fixture(
+                Path(directory)
+            )
+            spec = validate_inputs(
+                pd.read_csv(data_dir / "train.csv"),
+                pd.read_csv(data_dir / "test.csv"),
+            )
+            counts = blend_module._validate_reused_artifacts(
+                artifacts_dir, input_hashes, spec
+            )
+            self.assertEqual(counts, [1, 2])
+
+            cat_path = artifacts_dir / "challengers" / "compare_metadata.json"
+            lgb_path = artifacts_dir / "lightgbm" / "compare_metadata.json"
+            valid_cat = json.loads(cat_path.read_text(encoding="utf-8"))
+            valid_lgb = json.loads(lgb_path.read_text(encoding="utf-8"))
+            cases = (
+                ("CatBoost metadata input_sha256", "cat_hash"),
+                ("CatBoost metadata catboost_native configuration", "cat_config"),
+                ("LightGBM validation results", "lgb_seeds"),
+                ("LightGBM best_iteration", "lgb_count"),
+            )
+            for message, case in cases:
+                with self.subTest(case=case):
+                    cat_metadata = copy.deepcopy(valid_cat)
+                    lgb_metadata = copy.deepcopy(valid_lgb)
+                    if case == "cat_hash":
+                        cat_metadata["input_sha256"]["train.csv"] = "changed"
+                    elif case == "cat_config":
+                        cat_metadata["predeclared_configs"]["catboost_native"][
+                            "depth"
+                        ] = 8
+                    elif case == "lgb_seeds":
+                        lgb_metadata["validation_results"][1]["split_seed"] = 42
+                    else:
+                        lgb_metadata["validation_results"][0]["best_iteration"] = 0
+                    compare_module.save_json(cat_path, cat_metadata)
+                    compare_module.save_json(lgb_path, lgb_metadata)
+                    with self.assertRaisesRegex(ValueError, message):
+                        blend_module._validate_reused_artifacts(
+                            artifacts_dir, input_hashes, spec
+                        )
+
+    def test_blend_input_integrity_failure_is_persisted_and_raised(self) -> None:
+        with TemporaryDirectory() as directory:
+            data_dir, artifacts_dir, _ = self._write_blend_reuse_fixture(
+                Path(directory)
+            )
+            train_path = data_dir / "train.csv"
+
+            def mutate() -> None:
+                train_path.write_text(
+                    train_path.read_text(encoding="utf-8") + "\n", encoding="utf-8"
+                )
+
+            with self.assertRaisesRegex(RuntimeError, "input CSV fingerprint changed"):
+                self._run_blend_integrity_case(Path(directory), mutate)
+            metadata = json.loads(
+                (artifacts_dir / "blend_50_50" / "compare_metadata.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(metadata["status"], "failed")
+            self.assertIsNone(metadata["selection"])
+            self.assertIsNone(metadata["final"])
+            self.assertIn("input CSV fingerprint changed", metadata["error"]["message"])
+
+    def test_blend_protected_integrity_preserves_original_exception(self) -> None:
+        with TemporaryDirectory() as directory:
+            data_dir, artifacts_dir, _ = self._write_blend_reuse_fixture(
+                Path(directory)
+            )
+            protected_path = artifacts_dir / "protected.txt"
+
+            def mutate() -> None:
+                protected_path.write_text("changed", encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "synthetic fit failure"):
+                self._run_blend_integrity_case(
+                    Path(directory), mutate, RuntimeError("synthetic fit failure")
+                )
+            metadata = json.loads(
+                (artifacts_dir / "blend_50_50" / "compare_metadata.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                metadata["error"],
+                {"type": "RuntimeError", "message": "synthetic fit failure"},
+            )
+            self.assertIn(
+                "pre-existing artifact changed", metadata["integrity_error"]["message"]
+            )
+            self.assertIsNone(metadata["selection"])
+            self.assertIsNone(metadata["final"])
+
+    def test_blend_reuse_accepts_equivalent_relative_artifact_paths(self) -> None:
+        with TemporaryDirectory() as directory:
+            data_dir, artifacts_dir, hashes = self._write_blend_reuse_fixture(
+                Path(directory)
+            )
+            spec = validate_inputs(
+                pd.read_csv(data_dir / "train.csv"), pd.read_csv(data_dir / "test.csv")
+            )
+            path = artifacts_dir / "challengers" / "compare_metadata.json"
+            metadata = json.loads(path.read_text())
+            for field in ("model_path", "feature_spec_path"):
+                metadata["final"][field] = os.path.relpath(metadata["final"][field])
+            compare_module.save_json(path, metadata)
+            self.assertEqual(
+                blend_module._validate_reused_artifacts(
+                    artifacts_dir.resolve(), hashes, spec
+                ),
+                [1, 2],
+            )
+
+    def test_blend_repeated_metadata_write_failure_preserves_fit_error(self) -> None:
+        with TemporaryDirectory() as directory:
+            self._write_blend_reuse_fixture(Path(directory))
+            original = RuntimeError("original fit failure")
+            real_save = blend_module.save_json
+            writes = 0
+
+            def fail_after_setup(path: Path, value: dict[str, object]) -> None:
+                nonlocal writes
+                writes += 1
+                if writes > 2:
+                    raise OSError("metadata storage unavailable")
+                real_save(path, value)
+
+            with (
+                mock.patch.object(
+                    blend_module, "save_json", side_effect=fail_after_setup
+                ),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                with self.assertRaises(RuntimeError) as raised:
+                    self._run_blend_integrity_case(
+                        Path(directory), lambda: None, original
+                    )
+            self.assertIs(raised.exception, original)
 
     def test_catboost_default_and_requested_depths(self) -> None:
         self.assertEqual(

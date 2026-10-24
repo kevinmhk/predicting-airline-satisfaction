@@ -2,7 +2,7 @@
 
 ## Status and objective
 
-The VPS-only implementation and local training/export run completed on 2026-10-23. Bounded challenger experiments completed locally on 2026-10-24 HKT (2026-10-23 UTC), including one LightGBM experiment recorded below. Real validation results and artifact paths are recorded below. No competition submission was uploaded.
+The VPS-only implementation and local training/export run completed on 2026-10-23. Bounded challenger experiments and the authorized fixed 50/50 CatBoost/LightGBM blend confirmation completed locally on 2026-10-24 HKT (2026-10-23 UTC). Real validation results and artifact paths are recorded below. No competition submission was uploaded.
 
 Predict the probability of passenger satisfaction for each test row. Optimize ROC AUC. Start with a reproducible CPU baseline, then compare boosted trees on identical validation rows. Execution tasks are in [plan.md](plan.md); no separate architecture document is needed.
 
@@ -236,6 +236,83 @@ metadata reports protected baseline artifacts unchanged. The user-reported
 public CatBoost result of AUC `0.95797`, rank `2225` remains separate from
 these local validation scores and was not used for this decision. No agent
 submission, commit, push, or publication occurred.
+
+## Fixed 50/50 blend confirmation
+
+On 2026-10-24 HKT, the user authorized one fresh-split confirmation of a fixed
+`0.5` CatBoost / `0.5` LightGBM blend. This was a single predeclared blend
+experiment: weights, model settings, and validation protocol were not searched.
+The run used an external 1200-second timeout, two threads, and no new
+dependencies. Its complete outputs are under
+`artifacts/blend_50_50/`; existing artifacts were protected by the complete
+LightGBM snapshot helper and remained unchanged.
+
+The fresh outer split was stratified 80/20 with seed `31415`. Both models used
+the same outer fit/holdout. Both used the same stratified 90/10 inner split
+with seed `42`, drawn only from the fresh outer-fit rows; the outer holdout was
+never used for fitting, category-level fitting, or early stopping. The split
+arrays are stored in compressed
+`artifacts/blend_50_50/fresh_split_31415.npz`, not as JSON row-ID lists.
+CatBoost used the existing native depth-6 configuration: 1200 iterations,
+learning rate `0.06`, native categorical columns, and early stopping 100 on
+the inner evaluation rows. LightGBM used the existing explicit AUC-only
+configuration: 1500 estimators, learning rate `0.04`, 31 leaves, and early
+stopping 100 on the same inner evaluation rows. Numeric NaNs remained native;
+LightGBM category levels were fitted only on its inner-fit rows.
+
+| Candidate | Fresh ROC AUC | Fresh log loss | Actual / best iteration count | Fit seconds |
+| --- | ---: | ---: | ---: | ---: |
+| CatBoost depth 6 | 0.9584760730 | 0.2278616125 | 1199 / 1199 (best index 1198) | 179.258 |
+| LightGBM | 0.9585916004 | 0.2275384364 | 778 / 778 (one-based) | 27.026 |
+| Fixed 50/50 blend | 0.9588362995 | 0.2269662954 | weights only | — |
+
+The fresh blend gained `+0.0003602265` AUC over fresh CatBoost and strictly
+exceeded fresh LightGBM by `+0.0002446992`, so the predeclared confirmation
+gate passed. The prior saved validation predictions were independently
+reloaded and aligned by unique IDs before recomputing the two earlier blend
+checks: seed 42 blend AUC `0.957713923393243` versus CatBoost
+`0.957349866089771` (gain `+0.0003640573`), and seed 2024 blend AUC
+`0.9580214315945633` versus CatBoost `0.9577455322589059` (gain
+`+0.0002758993`). These earlier and fresh holdouts overlap, so the fresh
+seed is additional stability evidence, not statistically independent
+confirmation.
+
+Because the gate passed, the existing all-train CatBoost model,
+`artifacts/challengers/final_model_catboost.cbm`, feature spec, submission, and
+provenance were reused unchanged. Its predictions matched the prior
+submission within `2.22e-16`. LightGBM was refit on all training rows without
+an eval set or early stopping using the median one-based best-iteration counts
+`[879, 783, 778]`, giving `783` trees. The native model and fit-only category
+spec are `artifacts/blend_50_50/final_model_lightgbm.txt` and
+`artifacts/blend_50_50/feature_spec.json`. The final export is
+`artifacts/blend_50_50/submission_catboost_lightgbm_50_50.csv`, with exactly
+299,844 rows, original test ID order, `id,satisfaction` columns, and finite
+probabilities in `[0, 1]`. No standalone LightGBM submission was created.
+
+Clean-interpreter reload of both native models reconstructed all blend
+predictions with maximum component difference `0.0` and maximum CSV blend
+difference `2.22e-16`. Total experiment elapsed time was `260.930` seconds.
+Input hashes remained train `2313b65c74e6994f01c2628aae82d2f97aa6f74a81950172ff83864837c98b36`
+and test `ff7932747f27c5274de904194ac38b4d088ea4f9bb005ae74f0d619fb893a9b6`.
+The user-reported public CatBoost AUC `0.95797` / rank `2225` remains a
+separate public result, not a local validation score and not evidence from
+this run. No agent upload occurred. The user subsequently reported manually submitting the fixed blend and receiving public AUC `0.95817`, rank `2101`; this is user-reported, not independently fetched. It supersedes the reported depth-6 public best of `0.95797` and is not a local validation score.
+
+After this completed run, the blend wrapper received guard-only hardening:
+prior CatBoost/LightGBM provenance, fixed configurations, feature specs, and
+iteration-count structure are checked before reuse; prior saved-prediction
+blend gains are enforced; and input/protected-artifact drift is persisted as a
+failure and raised without implying a valid selection or final output. Small
+synthetic/mocked regressions cover valid metadata, changed hashes/configuration/
+seeds/counts, and both integrity paths. The completed artifacts were not
+retrained or modified, and no real experiment was rerun after these guard-only
+changes. Final wrapper checks also cover equivalent relative/absolute artifact paths and repeated metadata-write failure without masking the original fit error. Formatting, lint, typecheck, and all 36 tests pass; model predictions and the submission file are unchanged.
+
+The exact reproduction command was:
+
+```text
+/usr/bin/timeout --signal=TERM --kill-after=30s 1200s .venv/bin/python blend_experiment.py --data-dir data --artifacts-dir artifacts
+```
 
 ## Observed local data
 

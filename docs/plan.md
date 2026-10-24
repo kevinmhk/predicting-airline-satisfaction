@@ -76,11 +76,12 @@ Exit check: both models have directly comparable measured results, with a provis
 - [ ] Optional: compare rating features as numeric versus categorical, including treatment of zeros as real observed values rather than assumed missing values.
 - [ ] Optional: compare a small set of low-rating counts, rating averages, or delay indicators. Keep only repeatable gains; remove unused experimental code.
 - [ ] Optional: assess whether original-source data is worth a separate experiment. Obtain download authorization and check terms, schema, overlap, and distribution before using it. Do not infer test labels or hand-label records.
-- [ ] Optional: evaluate a simple blend using validation predictions aligned by row ID. Keep it only if it beats the best component consistently; skip stacking infrastructure.
+- [x] Run the authorized fixed 50/50 CatBoost depth-6 + LightGBM blend confirmation on fresh stratified seed 31415, with both models sharing the same outer and inner partitions. Recompute prior two-seed evidence from saved predictions after unique-ID alignment. The fresh blend gained `+0.0003602265` AUC over CatBoost and strictly exceeded LightGBM; artifacts are under `artifacts/blend_50_50/`.
 - [x] Select the challenger using local evidence and the predeclared two-seed rule. CatBoost qualified with AUC gains of 0.000549887 and 0.000533392 over the original HGB and was selected among qualifying challengers. The original model-selection policy and root `artifacts/` baseline remain unchanged; LightGBM, feature engineering, and ensembles were skipped.
 - [x] Run the separately authorized single deeper CatBoost experiment with only `depth=8` changed from the existing depth-6 configuration. On seeds 42 and 2024, gains versus prior depth-6 CatBoost were `+0.0000541864` and `-0.0000598357`; the `0.0002`-each-seed gate was not met. Retain the prior depth-6 candidate and create no new final candidate. Exact results and provenance are in `artifacts/deeper_catboost/compare_metadata.json` and `approach.md`.
 - [x] Run the initial bounded native LightGBM experiment with the predeclared 1500-tree configuration. Review found that the binary objective registered both AUC and `binary_logloss`; preserve its files unchanged in `artifacts/lightgbm_dual_metric_review/` as the invalid stopping-policy run.
 - [x] Rerun the corrected LightGBM configuration with explicit `metric=auc`, recorded CatBoost inner splits, disjoint smoke subsets, and a 0.0002 AUC gain gate on both seeds. The authoritative run measured gains of `+0.0001394238` and `-0.0000482102`, so it was rejected; exact results and provenance are in `artifacts/lightgbm/compare_metadata.json` and `approach.md`.
+- [x] Refit LightGBM on all rows at the median one-based best-iteration count `783` from prior counts `879,783` plus fresh count `778`, reuse the unchanged CatBoost final artifact, export the fixed 50/50 blend, and verify native-model reloads and CSV round-trip.
 
 ### Optional higher-compute extension — before final selection
 
@@ -121,6 +122,8 @@ Exit check: a real, locally validated prediction artifact exists and its generat
 - [x] Run quality gates in order: format, lint, typecheck, test. Use minimal project-local tooling/configuration where missing; keep checks focused on implemented source and tests, not source-data formatting.
 - [x] Rerun the runnable regression check and the documented baseline/challenger commands after the final code change. The follow-up wrapper regression checks are synthetic only: ordinary failure persistence, protected-artifact finalization, and completed-rejected/timeout CLI summaries. No depth-8 model rerun was needed; completed results remain preserved.
 - [x] Run the final LightGBM source gates and one externally bounded corrected real experiment. The candidate completed and was rejected on both fixed seeds; no final LightGBM refit or submission was produced. The first dual-metric run remains archived and unchanged.
+- [x] Run the blend source gates and the externally bounded fresh-split confirmation. The gate passed; final blend outputs and metadata are under `artifacts/blend_50_50/`. No standalone LightGBM submission, upload, commit, or push occurred.
+- [x] After the completed blend run, add only wrapper guard regressions for prior-artifact provenance/configuration and input/protected-artifact failure persistence. No real rerun or artifact modification was performed after this guard-only change.
 - [x] Review the final diff for scope, credentials, accidental data exposure, leakage, unused experimental code, and dependency additions.
 - [x] Record exact reproduction commands including `compare.py`, environment versions, selected settings, measured validation results/runtime, protected baseline fingerprints, and challenger artifact paths. Existing documentation was updated; no separate design/report file was created.
 - [x] Present results and remaining uncertainties to the user. Changes remain uncommitted; no push or publication occurred.
@@ -130,6 +133,7 @@ Exit check: working code and prediction artifact are backed by actual execution,
 ## Phase 8 — Submit only with explicit approval
 
 - [x] Record that the agent made no new submission for the deeper experiment; the user manually submitted prior models. The deeper candidate did not qualify and no new final CSV exists.
+- [x] Record that the fixed 50/50 blend was exported locally after passing its predeclared gate; the agent made no new Kaggle submission.
 - [ ] Recheck live rules, deadline, participation eligibility/acceptance status, and available submission allowance. Resolve outstanding compliance questions before upload.
 - [ ] Obtain explicit approval for the exact prediction file and submission action. A completed local plan is not submission authorization.
 - [ ] Upload the approved CSV through the authorized Kaggle account and read back submission status/score. Do not claim success from an upload response alone.
