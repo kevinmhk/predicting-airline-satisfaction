@@ -314,6 +314,43 @@ The exact reproduction command was:
 /usr/bin/timeout --signal=TERM --kill-after=30s 1200s .venv/bin/python blend_experiment.py --data-dir data --artifacts-dir artifacts
 ```
 
+## Fixed 75/25 blend experiment
+
+On 2026-10-25 HKT, the authorized first phase scored one fixed candidate using
+the saved slow-CatBoost validation probabilities at weight `0.75` and the
+saved corrected original LightGBM probabilities at weight `0.25`. No model was
+fit and no weights were searched. Both components were reloaded and aligned by
+unique `id`; the current `0.5`/`0.5` blend was recomputed from the same arrays
+before comparison.
+
+| Split seed | Current 50/50 AUC | Fixed 75/25 AUC | Gain vs current | Decision |
+| ---: | ---: | ---: | ---: | --- |
+| 42 | 0.9577942088 | 0.9577166585 | -0.0000775503 | reject |
+| 2024 | 0.9581967799 | 0.9581871345 | -0.0000096454 | reject |
+
+The predeclared gate required at least `+0.0002` ROC AUC on both fixed
+holdouts. It failed on both seeds, so the current 50/50 blend remains selected.
+The overlapping holdouts are stability evidence, not independent confidence.
+Validation outputs and complete pre-existing-artifact/input fingerprints are in
+`artifacts/blend_75_25/`. The output directory contains only metadata, a
+protected-artifact hash file, and the two row-aligned candidate validation CSVs.
+No training, refit, submission export, Kaggle upload, or new dependency was
+used.
+
+The phase-1 gates passed in order:
+
+```text
+.venv/bin/ruff format weighted_blend_experiment.py test_train.py
+.venv/bin/ruff check weighted_blend_experiment.py test_train.py
+.venv/bin/mypy weighted_blend_experiment.py test_train.py
+.venv/bin/python -m unittest -v test_train.py
+.venv/bin/python weighted_blend_experiment.py --data-dir data --artifacts-dir artifacts
+```
+
+The phase-1 source and documentation change was committed and pushed before
+the separate memory-bounded RandomForest phase. The exact commit is recorded
+in the repository history and was verified against `origin/main`.
+
 ## Fixed five-feature pass
 
 On 2026-10-24 HKT, the authorized feature pass tested exactly five appended

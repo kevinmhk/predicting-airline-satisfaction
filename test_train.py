@@ -24,6 +24,7 @@ import feature_experiment as feature_module
 import lightgbm_experiment as lightgbm_module
 import longer_catboost as longer_catboost_module
 import source_augmentation as source_module
+import weighted_blend_experiment as weighted_blend_module
 from blend_experiment import aligned_blend_predictions, confirmation_gate
 from compare import (
     _fit_catboost,
@@ -294,6 +295,24 @@ class TrainContractTests(unittest.TestCase):
         self.assertTrue(confirmation_gate(0.95, 0.9501, 0.9502))
         self.assertFalse(confirmation_gate(0.95, 0.949, 0.9501))
         self.assertFalse(confirmation_gate(0.95, 0.9502, 0.9502))
+
+    def test_weighted_blend_aligns_by_id_and_uses_fixed_75_25_weights(self) -> None:
+        aligned = weighted_blend_module.weighted_blend_predictions(
+            [1, 2, 3],
+            [3, 1, 2],
+            np.array([0.3, 0.1, 0.2]),
+            [2, 3, 1],
+            np.array([0.5, 0.6, 0.4]),
+        )
+        np.testing.assert_allclose(aligned["blend_probability"], [0.175, 0.275, 0.375])
+
+    def test_weighted_blend_gate_requires_both_seed_gains(self) -> None:
+        self.assertTrue(
+            weighted_blend_module.blend_gate({42: 0.0002, 2024: 0.00021})["qualifies"]
+        )
+        rejected = weighted_blend_module.blend_gate({42: 0.0002, 2024: 0.0001999})
+        self.assertFalse(rejected["qualifies"])
+        self.assertEqual(rejected["decision"], "retain_current_blend")
 
     def test_longer_baseline_aligns_reordered_saved_catboost_ids(self) -> None:
         train, _ = synthetic_frames()

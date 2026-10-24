@@ -15,6 +15,7 @@ select = ["E", "F", "I", "UP", "B"]
 "slower_learning.py" = ["E402"]
 "categorical_ratings.py" = ["E402"]
 "source_augmentation.py" = ["E402"]
+"weighted_blend_experiment.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.10"
