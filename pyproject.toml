@@ -14,6 +14,7 @@ select = ["E", "F", "I", "UP", "B"]
 "longer_catboost.py" = ["E402"]
 "slower_learning.py" = ["E402"]
 "categorical_ratings.py" = ["E402"]
+"source_augmentation.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.10"

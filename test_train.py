@@ -23,6 +23,7 @@ import compare as compare_module
 import feature_experiment as feature_module
 import lightgbm_experiment as lightgbm_module
 import longer_catboost as longer_catboost_module
+import source_augmentation as source_module
 from blend_experiment import aligned_blend_predictions, confirmation_gate
 from compare import (
     _fit_catboost,
@@ -100,6 +101,61 @@ def synthetic_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 class TrainContractTests(unittest.TestCase):
+    def test_source_overlap_exclusion_ignores_ids_and_targets_and_preserves_nan(
+        self,
+    ) -> None:
+        train, test = feature_frames()
+        source = train.drop(columns="id").copy()
+        source["Age"] = source["Age"].astype("float64")
+        source[feature_module.RATING_COLUMNS[0]] = source[
+            feature_module.RATING_COLUMNS[0]
+        ].astype("float64")
+        source.loc[0, "satisfaction"] = not bool(source.loc[0, "satisfaction"])
+        source_original = source.copy(deep=True)
+        train_original = train.copy(deep=True)
+        test_original = test.copy(deep=True)
+        spec = validate_inputs(train, test)
+        clean, labels, record = source_module.clean_source_rows(
+            source, train, test, spec
+        )
+        self.assertEqual(record["clean_rows"], 0)
+        self.assertEqual(len(labels), 0)
+        self.assertEqual(len(clean), 0)
+        self.assertTrue(pd.isna(train.loc[1, "Arrival Delay in Minutes"]))
+        self.assertTrue(pd.isna(test.loc[1, "Arrival Delay in Minutes"]))
+        pd.testing.assert_frame_equal(source, source_original)
+        pd.testing.assert_frame_equal(train, train_original)
+        pd.testing.assert_frame_equal(test, test_original)
+
+    def test_source_conflicting_duplicate_labels_are_rejected(self) -> None:
+        train, test = synthetic_frames()
+        source = pd.concat(
+            [train.drop(columns="id").iloc[[0]], train.drop(columns="id").iloc[[0]]],
+            ignore_index=True,
+        )
+        source.loc[1, "satisfaction"] = not bool(source.loc[0, "satisfaction"])
+        spec = validate_inputs(train, test)
+        with self.assertRaisesRegex(ValueError, "conflicting labels"):
+            source_module.clean_source_rows(source, train, test, spec)
+
+    def test_augmented_fit_membership_is_competition_inner_fit_plus_source(
+        self,
+    ) -> None:
+        result = source_module.augmented_fit_indices(np.array([2, 5, 7]), 10, 4)
+        np.testing.assert_array_equal(result, [2, 5, 7, 10, 11, 12, 13])
+
+    def test_source_gate_requires_both_seed_gains(self) -> None:
+        baseline = {42: 0.957794208813, 2024: 0.958196779926}
+        passed = source_module.source_gate(
+            baseline, {42: baseline[42] + 0.0002001, 2024: baseline[2024] + 0.0003}
+        )
+        self.assertTrue(passed["qualifies"])
+        failed = source_module.source_gate(
+            baseline, {42: baseline[42] + 0.0002, 2024: baseline[2024] + 0.0001999}
+        )
+        self.assertFalse(failed["qualifies"])
+        self.assertEqual(failed["decision"], "retain_current_blend")
+
     def test_engineered_features_have_exact_values_and_preserve_input(self) -> None:
         frame = pd.DataFrame(
             {column: [0, 5, 2] for column in feature_module.RATING_COLUMNS}

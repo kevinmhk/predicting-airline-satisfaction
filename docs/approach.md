@@ -513,6 +513,79 @@ The source gates and full regression suite passed before execution:
 /usr/bin/timeout --signal=TERM --kill-after=30s 5400s .venv/bin/python categorical_ratings.py --complete-second-split --data-dir data --artifacts-dir artifacts
 ```
 
+## Original-source augmentation experiment
+
+On 2026-10-25 HKT, the user authorized one bounded source-data augmentation
+experiment. The source was the downloaded Kaggle dataset
+`arseniyshutko/binary-aviation-satisfaction-129k`; its saved metadata states
+CC0-1.0 and identifies educational AI/ML course material as the provenance.
+The source is public external data, but its relationship to the competition
+generator is uncertain and its marginal distributions differ materially.
+The read-only assessment recorded 129,880 rows, 17 exact feature overlaps with
+train, 4 with test, and 3 train-label disagreements among those overlaps. The
+run excluded overlaps using only all-21-feature canonical equality, never the
+IDs or labels; it independently found 129,859 clean source rows, zero source
+feature duplicates, zero conflicting source labels, and removed no duplicate
+rows.
+
+The entry point was `source_augmentation.py`. It reused the recorded outer
+splits and the prior CatBoost seed-42 90/10 inner arrays after recomputing and
+verifying them with the existing helper. It used only the existing four native
+nominal columns; all 13 ratings stayed numeric, observed zeros stayed valid,
+and numeric arrival-delay NaNs remained NaN. The exact slow-CatBoost settings
+were unchanged: depth `6`, `6000` iterations, learning rate `0.03`,
+`l2_leaf_reg=3`, `Logloss`/`AUC`, seed `42`, patience `200`, two threads, and
+`allow_writing_files=false`. Each fit used 503,737 competition inner-fit rows
+plus all 129,859 clean source rows at unit weight. Early stopping used only
+the 55,971 competition inner-validation rows; the 139,927 outer holdout rows
+were used only for scoring. No source rows entered early stopping or scoring,
+and no origin indicator, resampling, weight search, refit, export, or third
+seed was run.
+
+The fixed 50/50 candidate used augmented CatBoost predictions with the saved
+corrected original LightGBM predictions. Baselines were recomputed after
+unique-ID alignment and finite-probability checks before each expensive fit.
+
+| Split seed | Augmented CatBoost AUC / log loss | Candidate blend AUC / log loss | Gain vs current blend | Trees | Fit seconds |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 42 | 0.9573326966 / 0.2311362498 | 0.9577846015 / 0.2298503421 | -0.0000096073 | 4444 | 864.346 |
+| 2024 | 0.9573831197 / 0.2305897936 | 0.9579044878 / 0.2291248495 | -0.0002922921 | 2073 | 415.016 |
+
+The current slow-CatBoost plus original-LightGBM baselines were
+`0.9577942088` and `0.9581967799`. The predeclared `+0.0002` AUC gate failed
+on both overlapping fixed holdouts, so the decision is
+`retain_current_blend`. The overlapping holdouts are stability evidence, not
+independent confirmation. No automatic third seed, refit, export, Kaggle
+upload, or commit/push was performed.
+
+The external command was bounded to 10,800 seconds with a 30-second kill
+grace; the entry point had an internal 10,500-second timeout. Both sequential
+fits completed in 1,288.643 total seconds. Peak process RSS was 1,641.4 MB on
+seed 42 and 1,699.1 MB on seed 2024; configured numerical and CatBoost thread
+limits were two. The isolated output directory contains 20,904,032 bytes and
+the two row-aligned component/LightGBM/blend validation files plus metadata.
+All 54 pre-existing artifact-file hashes matched before and after. All four
+data CSV hashes also matched before and after:
+
+```text
+sample_submission.csv  6165ecc5769962253534c2d840f26aab55dc3cc091d256bb3641bf6608194a71
+source_airline/data.csv 2ad76465f6115f93d16121891a6b1235acb8007a4ab065cae0dc46b60ad116e3
+test.csv               ff7932747f27c5274de904194ac38b4d088ea4f9bb005ae74f0d619fb893a9b6
+train.csv              2313b65c74e6994f01c2628aae82d2f97aa6f74a81950172ff83864837c98b36
+```
+
+The authoritative metadata and validation outputs are under
+`artifacts/source_augmentation/`. The source was not copied into artifacts,
+uploaded, or sent to an external model. The pre-run gates passed in order:
+
+```text
+.venv/bin/ruff format source_augmentation.py test_train.py
+.venv/bin/ruff check source_augmentation.py test_train.py
+.venv/bin/mypy source_augmentation.py test_train.py
+.venv/bin/python -m unittest -v test_train.py
+/usr/bin/timeout --signal=TERM --kill-after=30s 10800s .venv/bin/python source_augmentation.py --data-dir data --artifacts-dir artifacts
+```
+
 ## Observed local data
 
 All three downloaded CSVs were inspected locally. Only aggregate statistics were returned to the conversation.
