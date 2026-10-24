@@ -23,6 +23,7 @@ import compare as compare_module
 import feature_experiment as feature_module
 import lightgbm_experiment as lightgbm_module
 import longer_catboost as longer_catboost_module
+import random_forest_experiment as random_forest_module
 import source_augmentation as source_module
 import weighted_blend_experiment as weighted_blend_module
 from blend_experiment import aligned_blend_predictions, confirmation_gate
@@ -311,6 +312,60 @@ class TrainContractTests(unittest.TestCase):
             weighted_blend_module.blend_gate({42: 0.0002, 2024: 0.00021})["qualifies"]
         )
         rejected = weighted_blend_module.blend_gate({42: 0.0002, 2024: 0.0001999})
+        self.assertFalse(rejected["qualifies"])
+        self.assertEqual(rejected["decision"], "retain_current_blend")
+
+    def test_random_forest_configuration_is_fixed_and_bounded(self) -> None:
+        settings = random_forest_module.build_random_forest().get_params()
+        self.assertEqual(settings["n_estimators"], 200)
+        self.assertEqual(settings["max_depth"], 14)
+        self.assertEqual(settings["max_leaf_nodes"], 1024)
+        self.assertEqual(settings["min_samples_leaf"], 30)
+        self.assertEqual(settings["max_features"], "sqrt")
+        self.assertEqual(settings["max_samples"], 0.7)
+        self.assertEqual(settings["n_jobs"], 2)
+        self.assertIsNone(settings["class_weight"])
+        self.assertEqual(
+            random_forest_module.MAX_NODE_COUNT_BOUND, 200 * (2 * 1024 - 1)
+        )
+
+    def test_random_forest_preprocessing_is_fit_only_dense_and_unknown_safe(
+        self,
+    ) -> None:
+        train, test = synthetic_frames()
+        spec = validate_inputs(train, test)
+        preprocessor = random_forest_module.build_preprocessor(spec)
+        transformed = random_forest_module.dense_float32(
+            preprocessor.fit_transform(train[list(spec.feature_columns)])
+        )
+        unknown = test[list(spec.feature_columns)].copy()
+        unknown.loc[0, "Gender"] = "Unseen"
+        transformed_test = random_forest_module.dense_float32(
+            preprocessor.transform(unknown)
+        )
+        self.assertEqual(transformed.dtype, np.float32)
+        self.assertEqual(transformed_test.dtype, np.float32)
+        self.assertTrue(np.isfinite(transformed).all())
+        self.assertTrue(np.isfinite(transformed_test).all())
+
+    def test_random_forest_blend_uses_fixed_90_10_membership(self) -> None:
+        values = random_forest_module.random_forest_blend_predictions(
+            np.array([1, 2, 3]),
+            np.array([3, 1, 2]),
+            np.array([0.3, 0.1, 0.2]),
+            np.array([0.4, 0.5, 0.6]),
+        )
+        np.testing.assert_allclose(values, [0.37, 0.47, 0.57])
+
+    def test_random_forest_gate_requires_both_seed_gains(self) -> None:
+        self.assertTrue(
+            random_forest_module.random_forest_gate({42: 0.0002, 2024: 0.00021})[
+                "qualifies"
+            ]
+        )
+        rejected = random_forest_module.random_forest_gate(
+            {42: 0.0002, 2024: 0.0001999}
+        )
         self.assertFalse(rejected["qualifies"])
         self.assertEqual(rejected["decision"], "retain_current_blend")
 

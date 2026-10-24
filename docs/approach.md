@@ -351,6 +351,56 @@ The phase-1 source and documentation change was committed and pushed before
 the separate memory-bounded RandomForest phase. The exact commit is recorded
 in the repository history and was verified against `origin/main`.
 
+## Fixed memory-bounded RandomForest experiment
+
+On 2026-10-25 HKT, after the phase-1 commit and push, the authorized RF phase
+ran exactly one fixed configuration sequentially on the recorded seed-42 and
+seed-2024 holdouts. The configuration was
+`n_estimators=200`, `max_depth=14`, `max_leaf_nodes=1024`,
+`min_samples_leaf=30`, `max_features="sqrt"`, `bootstrap=true`,
+`max_samples=0.7`, `random_state=42`, `n_jobs=2`, and `class_weight=None`.
+The structural node bound was `200 * (2 * 1024 - 1) = 409,400` nodes.
+
+Preprocessing was fit only on the exact 503,737-row competition inner-fit
+partition for each seed. It used median numeric imputation, most-frequent
+categorical imputation, one-hot encoding with `handle_unknown="ignore"`, and a
+dense float32 output with 26 transformed features. The 55,971-row inner
+validation partition was excluded from RF fitting because RF had no early
+stopping; the 139,927-row outer holdout was used only for evaluation. The
+current blend was recomputed from the saved slow-CatBoost/original-LightGBM
+predictions by unique ID, then combined as `0.90 * current_50_50 + 0.10 * RF`.
+
+| Split seed | Standalone RF AUC / log loss | Current 50/50 AUC | Fixed 90/10 RF blend AUC / log loss | Gain vs current | Fit seconds | Peak RSS |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 42 | 0.9550480356 / 0.2411610720 | 0.9577942088 | 0.9577360938 / 0.2303499831 | -0.0000581150 | 38.808 | 961.9 MB |
+| 2024 | 0.9554150226 / 0.2400712685 | 0.9581967799 | 0.9581036501 / 0.2291926925 | -0.0000931299 | 39.200 | 1,019.3 MB |
+
+The predeclared gate required at least `+0.0002` AUC on both seeds. It failed
+on both seeds, so the current 50/50 blend remains selected. Each fitted forest
+used 200 trees and reached the recorded 2,047-node per-tree maximum; the total
+observed node count was 409,400, equal to the structural bound. The final
+experiment took 89.172 seconds, used two numerical threads, and wrote no model
+files or test prediction export.
+
+The authoritative outputs are under `artifacts/random_forest/` and contain two
+row-aligned validation CSVs plus metadata and protected-artifact hashes totaling
+20,922,561 bytes. The initial implementation attempt is preserved separately
+under `artifacts/random_forest_initial_failure/`; it fit seed 42 but failed
+after fitting while recording a scikit-learn-incompatible `max_features_`
+attribute. That failure was corrected and the fixed configuration was rerun;
+it was not an OOM or timeout retry. The successful run recorded all four data
+CSV hashes unchanged and all pre-existing artifact hashes unchanged.
+
+The final RF source gates passed in order:
+
+```text
+.venv/bin/ruff format random_forest_experiment.py test_train.py
+.venv/bin/ruff check random_forest_experiment.py test_train.py
+.venv/bin/mypy random_forest_experiment.py test_train.py
+.venv/bin/python -m unittest -v test_train.py
+/usr/bin/timeout --signal=TERM --kill-after=30s 10800s .venv/bin/python random_forest_experiment.py --data-dir data --artifacts-dir artifacts
+```
+
 ## Fixed five-feature pass
 
 On 2026-10-24 HKT, the authorized feature pass tested exactly five appended
