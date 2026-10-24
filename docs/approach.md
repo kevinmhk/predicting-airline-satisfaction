@@ -314,6 +314,49 @@ The exact reproduction command was:
 /usr/bin/timeout --signal=TERM --kill-after=30s 1200s .venv/bin/python blend_experiment.py --data-dir data --artifacts-dir artifacts
 ```
 
+## Fixed five-feature pass
+
+On 2026-10-24 HKT, the authorized feature pass tested exactly five appended
+numeric predictors: `rating_mean`, `low_rating_count`, `departure_delayed`,
+`arrival_delayed`, and `arrival_delay_missing`. The mean and low-rating count
+use the explicit 13 service-rating fields. Observed zero ratings count as low
+ratings. Delay indicators preserve missing delay values as missing; the
+missingness indicator is separate. The four nominal predictors, native
+categorical handling, numeric NaNs, CatBoost depth-6 settings, and explicit
+AUC-only LightGBM settings were unchanged. Input and every pre-existing
+artifact fingerprint were checked before and after the run.
+
+The run used the recorded outer seed-42 and seed-2024 arrays and the prior
+CatBoost 90/10 seed-42 inner arrays. Fits were sequential with two threads.
+The current unengineered blend was recomputed from the saved CatBoost and
+LightGBM validation predictions after unique-ID alignment. The predeclared
+gate required an engineered fixed 50/50 blend gain of at least `0.0002` on
+both seeds.
+
+| Split seed | Feature CatBoost AUC | Feature LightGBM AUC | Feature blend AUC | Gain vs current blend | Feature blend log loss |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 42 | 0.9573208451 | 0.9573044042 | 0.9575926818 | -0.0001212416 | 0.2304502788 |
+| 2024 | 0.9576483851 | 0.9577904776 | 0.9580344291 | +0.0000129975 | 0.2292844251 |
+
+The current unengineered blend AUCs were `0.957713923393243` and
+`0.9580214315945633`. Neither engineered gain met `0.0002`, so the pass was
+rejected after the two recorded seeds. The seed-31415 confirmation, all-row
+refits, native model reload, and descriptive final submission were skipped.
+No loser model or submission was exported. New validation and provenance
+artifacts are under `artifacts/feature_pass/`; all existing data and artifact
+hashes remained unchanged. The run took 499.038 seconds and ended with
+`selection.decision=retain_unengineered_blend`.
+
+The real experiment used the model code and feature bundle described above. Subsequent wrapper-only fixes persist source/dependency discovery failures, resolve reload paths before changing subprocess working directory, and clear the completed fresh-fit status before its gate. The model logic, input files, validation outputs, and selected current blend are unchanged; no training rerun was needed for these guard-only fixes. Formatting, lint, typecheck, and all 42 tests pass on the final source. The executed training command and current gate commands are:
+
+```text
+.venv/bin/ruff format train.py test_train.py compare.py lightgbm_experiment.py blend_experiment.py feature_experiment.py
+.venv/bin/ruff check train.py test_train.py compare.py lightgbm_experiment.py blend_experiment.py feature_experiment.py
+.venv/bin/mypy train.py test_train.py compare.py lightgbm_experiment.py blend_experiment.py feature_experiment.py
+.venv/bin/python -m unittest -v test_train.py
+/usr/bin/timeout --signal=TERM --kill-after=30s 1500s .venv/bin/python feature_experiment.py --data-dir data --artifacts-dir artifacts
+```
+
 ## Observed local data
 
 All three downloaded CSVs were inspected locally. Only aggregate statistics were returned to the conversation.

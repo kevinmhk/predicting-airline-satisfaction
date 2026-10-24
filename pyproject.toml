@@ -9,6 +9,7 @@ select = ["E", "F", "I", "UP", "B"]
 "compare.py" = ["E402"]
 "lightgbm_experiment.py" = ["E402"]
 "blend_experiment.py" = ["E402"]
+"feature_experiment.py" = ["E402"]
 "train.py" = ["E402"]
 
 [tool.mypy]

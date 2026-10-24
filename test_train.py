@@ -18,6 +18,7 @@ from catboost import CatBoostClassifier
 
 import blend_experiment as blend_module
 import compare as compare_module
+import feature_experiment as feature_module
 import lightgbm_experiment as lightgbm_module
 from blend_experiment import aligned_blend_predictions, confirmation_gate
 from compare import (
@@ -52,6 +53,29 @@ from train import (
 )
 
 
+def feature_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
+    train, test = synthetic_frames()
+    rating_values = {
+        column: [0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0]
+        for column in feature_module.RATING_COLUMNS
+    }
+    for column, values in rating_values.items():
+        train[column] = values[: len(train)]
+        test[column] = values[: len(test)]
+    for column in feature_module.RATING_COLUMNS:
+        train[column] = np.resize(rating_values[column], len(train))
+        test[column] = np.resize(rating_values[column], len(test))
+    train[feature_module.DEPARTURE_DELAY_COLUMN] = np.resize(
+        [0.0, 1.0, np.nan, 3.0], len(train)
+    )
+    test[feature_module.DEPARTURE_DELAY_COLUMN] = np.resize(
+        [0.0, 1.0, np.nan, 3.0], len(test)
+    )
+    train.loc[1, feature_module.RATING_COLUMNS[0]] = 5
+    test.loc[1, feature_module.RATING_COLUMNS[0]] = 5
+    return train, test
+
+
 def synthetic_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
     train = pd.DataFrame(
         {
@@ -73,6 +97,118 @@ def synthetic_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 class TrainContractTests(unittest.TestCase):
+    def test_engineered_features_have_exact_values_and_preserve_input(self) -> None:
+        frame = pd.DataFrame(
+            {column: [0, 5, 2] for column in feature_module.RATING_COLUMNS}
+        )
+        first_row = [0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0]
+        for column, value in zip(feature_module.RATING_COLUMNS, first_row, strict=True):
+            frame.loc[0, column] = value
+        frame["Departure Delay in Minutes"] = [0.0, np.nan, 3.0]
+        frame["Arrival Delay in Minutes"] = [np.nan, -1.0, 0.0]
+        frame["id"] = [10, 11, 12]
+        frame["satisfaction"] = [True, False, True]
+        original = frame.copy(deep=True)
+
+        engineered = feature_module.add_engineered_features(frame)
+
+        self.assertEqual(
+            list(engineered.columns[-5:]), list(feature_module.ENGINEERED_COLUMNS)
+        )
+        self.assertAlmostEqual(engineered.loc[0, "rating_mean"], 30 / 13)
+        self.assertEqual(engineered.loc[0, "low_rating_count"], 7)
+        self.assertEqual(engineered.loc[0, "departure_delayed"], 0.0)
+        self.assertTrue(pd.isna(engineered.loc[0, "arrival_delayed"]))
+        self.assertEqual(engineered.loc[0, "arrival_delay_missing"], 1)
+        self.assertEqual(engineered.loc[1, "low_rating_count"], 0)
+        self.assertTrue(pd.isna(engineered.loc[1, "departure_delayed"]))
+        self.assertEqual(engineered.loc[1, "arrival_delayed"], 0.0)
+        self.assertEqual(engineered.loc[2, "low_rating_count"], 13)
+        self.assertEqual(engineered.loc[2, "departure_delayed"], 1.0)
+        self.assertEqual(engineered.loc[2, "arrival_delayed"], 0.0)
+        pd.testing.assert_frame_equal(frame, original)
+        self.assertEqual(list(engineered["id"]), [10, 11, 12])
+        self.assertEqual(list(engineered["satisfaction"]), [True, False, True])
+
+    def test_engineered_features_reject_missing_and_colliding_columns(self) -> None:
+        frame = pd.DataFrame({feature_module.RATING_COLUMNS[0]: [1]})
+        with self.assertRaisesRegex(ValueError, "missing required"):
+            feature_module.add_engineered_features(frame)
+
+        train, _ = feature_frames()
+        train["rating_mean"] = 0.0
+        with self.assertRaisesRegex(ValueError, "collide"):
+            feature_module.add_engineered_features(train)
+
+    def test_engineered_spec_adds_only_numeric_predictors(self) -> None:
+        train, test = feature_frames()
+        engineered_train = feature_module.add_engineered_features(train)
+        engineered_test = feature_module.add_engineered_features(test)
+        spec = validate_inputs(engineered_train, engineered_test)
+
+        self.assertEqual(spec.categorical_columns, CATEGORICAL_COLUMNS)
+        self.assertEqual(spec.numeric_columns[-5:], feature_module.ENGINEERED_COLUMNS)
+        self.assertEqual(
+            len(spec.numeric_columns),
+            len(validate_inputs(train, test).numeric_columns) + 5,
+        )
+
+    def test_engineered_gate_requires_the_minimum_gain_on_both_seeds(self) -> None:
+        baseline = {42: 0.9577, 2024: 0.9580}
+        self.assertTrue(
+            feature_module.engineered_gate(baseline, {42: 0.95791, 2024: 0.95821})[
+                "qualifies"
+            ]
+        )
+        rejected = feature_module.engineered_gate(baseline, {42: 0.95791, 2024: 0.9581})
+        self.assertFalse(rejected["qualifies"])
+        self.assertEqual(rejected["decision"], "retain_unengineered_blend")
+
+    def test_feature_source_discovery_failure_persists_failed_metadata(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir = root / "data"
+            data_dir.mkdir()
+            for name in ("train.csv", "test.csv"):
+                (data_dir / name).write_text("synthetic placeholder\n")
+            artifacts_dir = root / "artifacts"
+            original = RuntimeError("source discovery failed")
+            with mock.patch.object(
+                feature_module, "_source_hashes", side_effect=original
+            ):
+                with self.assertRaises(RuntimeError) as raised:
+                    feature_module.run_experiment(data_dir, artifacts_dir)
+            self.assertIs(raised.exception, original)
+            path = artifacts_dir / "feature_pass" / "compare_metadata.json"
+            self.assertTrue(path.exists())
+            metadata = json.loads(path.read_text())
+            self.assertEqual(metadata["status"], "failed")
+            self.assertEqual(metadata["error"]["message"], "source discovery failed")
+
+    def test_feature_reload_resolves_relative_paths_before_changing_cwd(self) -> None:
+        paths = [
+            Path(name)
+            for name in (
+                "data/test.csv",
+                "models/cat.cbm",
+                "models/lgb.txt",
+                "models/spec.json",
+                "models/categories.json",
+            )
+        ]
+
+        def reload_stub(command: list[str], **kwargs: object) -> None:
+            for supplied, expected in zip(command[3:8], paths, strict=True):
+                self.assertEqual(Path(supplied), expected.resolve())
+            np.save(command[-1], np.array([[0.1, 0.3], [0.2, 0.4]]))
+
+        with mock.patch.object(
+            feature_module.subprocess, "run", side_effect=reload_stub
+        ):
+            cat, light = feature_module._fresh_process_reload(*paths)
+        np.testing.assert_array_equal(cat, [0.1, 0.2])
+        np.testing.assert_array_equal(light, [0.3, 0.4])
+
     def test_fixed_blend_aligns_by_id_and_uses_half_weights(self) -> None:
         aligned = aligned_blend_predictions(
             [1, 2, 3],
