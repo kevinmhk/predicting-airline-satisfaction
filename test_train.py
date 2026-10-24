@@ -18,6 +18,7 @@ import pandas as pd
 from catboost import CatBoostClassifier
 
 import blend_experiment as blend_module
+import categorical_ratings as categorical_module
 import compare as compare_module
 import feature_experiment as feature_module
 import lightgbm_experiment as lightgbm_module
@@ -1564,6 +1565,111 @@ class TrainContractTests(unittest.TestCase):
         rejected = slower.select_candidate(per_seed, baseline)
         self.assertEqual(rejected["decision"], "retain_current_blend")
         self.assertIsNone(rejected["selected_candidate"])
+
+    def test_categorical_ratings_are_canonical_and_input_is_unchanged(self) -> None:
+        train, test = feature_frames()
+        train_original = train.copy(deep=True)
+        test_original = test.copy(deep=True)
+        spec = validate_inputs(train, test)
+
+        prepared_train = categorical_module.prepare_rating_categorical_frame(
+            train, spec
+        )
+        prepared_test = categorical_module.prepare_rating_categorical_frame(test, spec)
+
+        self.assertEqual(list(prepared_train.columns), list(spec.feature_columns))
+        self.assertEqual(
+            categorical_module.categorical_columns(spec),
+            tuple(spec.categorical_columns) + feature_module.RATING_COLUMNS,
+        )
+        self.assertEqual(prepared_train.loc[0, feature_module.RATING_COLUMNS[0]], "0")
+        self.assertEqual(prepared_train.loc[1, feature_module.RATING_COLUMNS[0]], "5")
+        self.assertEqual(prepared_test.loc[0, "Gender"], "Unseen")
+        self.assertTrue(pd.isna(prepared_train.loc[1, "Arrival Delay in Minutes"]))
+        pd.testing.assert_frame_equal(train, train_original)
+        pd.testing.assert_frame_equal(test, test_original)
+
+    def test_categorical_ratings_reject_missing_fractional_and_out_of_domain_values(
+        self,
+    ) -> None:
+        train, test = feature_frames()
+        spec = validate_inputs(train, test)
+
+        missing = train.copy()
+        missing.loc[0, feature_module.RATING_COLUMNS[0]] = np.nan
+        with self.assertRaisesRegex(ValueError, "missing rating"):
+            categorical_module.prepare_rating_categorical_frame(missing, spec)
+
+        fractional = train.copy()
+        fractional[feature_module.RATING_COLUMNS[0]] = fractional[
+            feature_module.RATING_COLUMNS[0]
+        ].astype(float)
+        fractional.loc[0, feature_module.RATING_COLUMNS[0]] = 1.5
+        with self.assertRaisesRegex(ValueError, "integral"):
+            categorical_module.prepare_rating_categorical_frame(fractional, spec)
+
+        unexpected = train.copy()
+        unexpected.loc[0, feature_module.RATING_COLUMNS[0]] = 6
+        with self.assertRaisesRegex(ValueError, "allowed"):
+            categorical_module.prepare_rating_categorical_frame(unexpected, spec)
+
+    def test_categorical_ratings_preserve_slow_catboost_settings_and_gate(self) -> None:
+        model = categorical_module.build_categorical_ratings_catboost()
+        expected = categorical_module.build_slow_catboost().get_params()
+        self.assertEqual(model.get_params(), expected)
+        self.assertEqual(
+            len(
+                categorical_module.categorical_columns(
+                    validate_inputs(*feature_frames())
+                )
+            ),
+            17,
+        )
+
+        baseline = {42: 0.9577, 2024: 0.9580}
+        self.assertTrue(
+            categorical_module.categorical_gate(baseline, {42: 0.95791, 2024: 0.9582})[
+                "qualifies"
+            ]
+        )
+        rejected = categorical_module.categorical_gate(
+            baseline, {42: 0.95791, 2024: 0.95819}
+        )
+        self.assertFalse(rejected["qualifies"])
+        self.assertEqual(rejected["decision"], "retain_current_blend")
+
+    def test_categorical_second_split_mode_only_fits_seed2024_and_uses_85_minutes(
+        self,
+    ) -> None:
+        configuration = categorical_module._run_configuration(True)
+
+        self.assertEqual(configuration["seeds"], (2024,))
+        self.assertNotIn(42, configuration["seeds"])
+        self.assertEqual(configuration["output_name"], "categorical_ratings_seed2024")
+        self.assertEqual(configuration["internal_timeout_seconds"], 85 * 60)
+
+    def test_categorical_ratings_source_failure_persists_metadata(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir = root / "data"
+            data_dir.mkdir()
+            (data_dir / "train.csv").write_text("placeholder\n")
+            (data_dir / "test.csv").write_text("placeholder\n")
+            artifacts_dir = root / "artifacts"
+            original = RuntimeError("source discovery failed")
+            with mock.patch.object(
+                categorical_module, "_source_hashes", side_effect=original
+            ):
+                with self.assertRaisesRegex(RuntimeError, "source discovery failed"):
+                    categorical_module.run(data_dir, artifacts_dir)
+
+            metadata = json.loads(
+                (
+                    artifacts_dir / "categorical_ratings" / "compare_metadata.json"
+                ).read_text()
+            )
+            self.assertEqual(metadata["status"], "failed")
+            self.assertEqual(metadata["error"]["message"], "source discovery failed")
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ select = ["E", "F", "I", "UP", "B"]
 "train.py" = ["E402"]
 "longer_catboost.py" = ["E402"]
 "slower_learning.py" = ["E402"]
+"categorical_ratings.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.10"

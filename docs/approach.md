@@ -452,6 +452,67 @@ prediction helper; the model was already fitted and saved, so the refit was
 recovered from that file instead of being repeated, and its fit time is
 recorded as not measured.
 
+## Native categorical service-rating experiment
+
+On 2026-10-24/25 HKT, the authorized categorical-ratings experiment used the
+existing slow-CatBoost settings: depth `6`, learning rate `0.03`, `6000`
+iterations, patience `200`, `Logloss`/`AUC`, model seed `42`, two threads, and
+`allow_writing_files=false`. It changed only the 13 service-rating columns from
+numeric to native categorical features. The four existing nominal columns
+remained categorical, for 17 native categorical columns total. Ratings were
+copied without mutation, canonicalized to stable integer tokens, treated
+observed zero as valid, and rejected when missing, non-integral, non-numeric, or
+outside `0..5`. Numeric delay NaNs were preserved; nominal missing values use
+`<missing>`.
+
+The earlier two-seed attempt remains unchanged in
+`artifacts/categorical_ratings/`. It completed seed `42` but was externally
+interrupted during seed `2024`; its metadata honestly retains status `failed`
+and the original recorded error `KeyboardInterrupt` with an empty message. Its
+valid seed-42 CSV was reused only after verifying its SHA-256, source/config
+provenance, input hashes, recorded arrays, IDs, and probabilities. Seed `42`
+was not retrained.
+
+| Split seed | Categorical CatBoost AUC | Candidate 50/50 blend AUC | Gain vs current blend | Trees / best count | Fit seconds |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 42 | 0.9575978195 | 0.9578470100 | +0.0000528012 | 4142 / 4142 | 2264.340 |
+| 2024 | 0.9580262339 | 0.9581904783 | -0.0000063016 | 5383 / 5383 | 2927.894 |
+
+The second-split run used the explicit `--complete-second-split` mode with an
+internal `5100`-second (85-minute) alarm and the externally authorized command
+bound of `5400` seconds (90 minutes), without changing parameters or launching
+another seed. Its validation file is
+`artifacts/categorical_ratings_seed2024/validation_categorical_ratings_seed2024.csv`.
+The new metadata is
+`artifacts/categorical_ratings_seed2024/compare_metadata.json`; it combines the
+new result with a lineage reference to the verified prior seed-42 result. The
+seed-2024 fit used 5383 trees, took `2927.894` fit seconds and `2934.498`
+elapsed seconds, and observed a `1898.1 MB` maximum RSS. The new output is
+`10,467,631` bytes, below the `100 MiB` budget.
+
+The original completed validation file remains
+`artifacts/categorical_ratings/validation_categorical_ratings_seed42.csv`.
+The original failed-run metadata remains
+`artifacts/categorical_ratings/compare_metadata.json`; it records the exact 17
+categorical columns, settings, source/dependency hashes, split-array
+fingerprints, fit resource observations, and its failed state. It contains
+`10,452,622` bytes across one validation CSV and metadata, below the `100 MiB`
+budget. All 50 pre-existing artifact hashes, both input hashes, and source
+hashes matched before and after the second-split run. The combined gate still
+requires `+0.0002` on each seed and fails on both seeds, so this run is
+information-only; the current blend remains selected. No refit, export,
+submission, or upload was attempted.
+
+The source gates and full regression suite passed before execution:
+
+```text
+.venv/bin/ruff format blend_experiment.py categorical_ratings.py compare.py feature_experiment.py lightgbm_experiment.py longer_catboost.py slower_learning.py train.py test_train.py
+.venv/bin/ruff check blend_experiment.py categorical_ratings.py compare.py feature_experiment.py lightgbm_experiment.py longer_catboost.py slower_learning.py train.py test_train.py
+.venv/bin/mypy blend_experiment.py categorical_ratings.py compare.py feature_experiment.py lightgbm_experiment.py longer_catboost.py slower_learning.py train.py test_train.py
+.venv/bin/python -m unittest -v test_train.py
+/usr/bin/timeout --signal=TERM --kill-after=30s 5400s .venv/bin/python categorical_ratings.py --complete-second-split --data-dir data --artifacts-dir artifacts
+```
+
 ## Observed local data
 
 All three downloaded CSVs were inspected locally. Only aggregate statistics were returned to the conversation.
