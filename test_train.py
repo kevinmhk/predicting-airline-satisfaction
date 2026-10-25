@@ -18,9 +18,11 @@ import pandas as pd
 from catboost import CatBoostClassifier
 
 import blend_experiment as blend_module
+import catboost_seed_average as seed_average_module
 import categorical_ratings as categorical_module
 import compare as compare_module
 import feature_experiment as feature_module
+import five_fold_cv as five_fold_module
 import lightgbm_experiment as lightgbm_module
 import longer_catboost as longer_catboost_module
 import random_forest_experiment as random_forest_module
@@ -312,6 +314,106 @@ class TrainContractTests(unittest.TestCase):
             weighted_blend_module.blend_gate({42: 0.0002, 2024: 0.00021})["qualifies"]
         )
         rejected = weighted_blend_module.blend_gate({42: 0.0002, 2024: 0.0001999})
+        self.assertFalse(rejected["qualifies"])
+        self.assertEqual(rejected["decision"], "retain_current_blend")
+
+    def test_seed_average_changes_only_catboost_model_seed(self) -> None:
+        original = seed_average_module.build_slow_catboost().get_params()
+        averaged = seed_average_module.build_seed_average_catboost().get_params()
+        changed = {
+            key
+            for key in set(original) | set(averaged)
+            if original.get(key) != averaged.get(key)
+        }
+        self.assertEqual(changed, {"random_seed"})
+        self.assertEqual(original["random_seed"], 42)
+        self.assertEqual(averaged["random_seed"], 2025)
+
+    def test_seed_average_keeps_existing_inner_split_seed_42(self) -> None:
+        train, _ = synthetic_frames()
+        y = train["satisfaction"].astype(int).to_numpy()
+        outer_fit = np.arange(12, dtype=np.int64)
+        expected = make_catboost_internal_split(outer_fit, y, seed=42)
+        actual = make_catboost_internal_split(
+            outer_fit, y, seed=seed_average_module.INTERNAL_SEED
+        )
+        np.testing.assert_array_equal(actual[0], expected[0])
+        np.testing.assert_array_equal(actual[1], expected[1])
+        self.assertEqual(seed_average_module.INTERNAL_SEED, 42)
+
+    def test_seed_average_aligns_ids_and_uses_fixed_quarter_quarter_half_math(
+        self,
+    ) -> None:
+        result = seed_average_module.fixed_candidate_predictions(
+            [1, 2, 3],
+            [3, 1, 2],
+            np.array([0.3, 0.1, 0.2]),
+            [2, 3, 1],
+            np.array([0.8, 0.6, 0.7]),
+            [2, 3, 1],
+            np.array([0.5, 0.6, 0.4]),
+        )
+        np.testing.assert_allclose(
+            result["averaged_catboost_probability"], [0.4, 0.5, 0.45]
+        )
+        np.testing.assert_allclose(result["candidate_probability"], [0.4, 0.5, 0.525])
+
+    def test_seed_average_gate_requires_both_fixed_seed_gains(self) -> None:
+        accepted = seed_average_module.seed_average_gate({42: 0.0002, 2024: 0.0002001})
+        self.assertTrue(accepted["qualifies"])
+        rejected = seed_average_module.seed_average_gate({42: 0.0003, 2024: 0.0001999})
+        self.assertFalse(rejected["qualifies"])
+        self.assertEqual(rejected["decision"], "retain_current_blend")
+        self.assertAlmostEqual(rejected["gains_vs_current"]["42"], 0.0003)
+
+    def test_five_fold_membership_is_fixed_complete_and_disjoint(self) -> None:
+        train, _ = synthetic_frames()
+        y = train["satisfaction"].astype(int).to_numpy()
+        folds = five_fold_module.make_five_fold_splits(y)
+
+        self.assertEqual(len(folds), 5)
+        holdout = np.concatenate([validation for _, validation in folds])
+        np.testing.assert_array_equal(np.sort(holdout), np.arange(len(y)))
+        for fit, validation in folds:
+            self.assertFalse(set(fit) & set(validation))
+            self.assertEqual(set(y[fit]), {0, 1})
+            self.assertEqual(set(y[validation]), {0, 1})
+
+    def test_five_fold_models_and_blends_are_frozen(self) -> None:
+        seed42 = five_fold_module.build_catboost(42).get_params()
+        seed2025 = five_fold_module.build_catboost(2025).get_params()
+        changed = {
+            key
+            for key in set(seed42) | set(seed2025)
+            if seed42.get(key) != seed2025.get(key)
+        }
+        self.assertEqual(changed, {"random_seed"})
+        baseline, candidate = five_fold_module.fixed_blends(
+            np.array([0.2, 0.4]),
+            np.array([0.6, 0.8]),
+            np.array([0.5, 0.5]),
+        )
+        np.testing.assert_allclose(baseline, [0.35, 0.45])
+        np.testing.assert_allclose(candidate, [0.45, 0.55])
+
+    def test_five_fold_oof_rejects_duplicate_and_missing_rows(self) -> None:
+        with self.assertRaisesRegex(ValueError, "more than once"):
+            five_fold_module.assign_oof(
+                3,
+                [
+                    (1, np.array([0, 1]), np.array([0.1, 0.2])),
+                    (2, np.array([1, 2]), np.array([0.3, 0.4])),
+                ],
+            )
+        with self.assertRaisesRegex(ValueError, "missing"):
+            five_fold_module.assign_oof(
+                3, [(1, np.array([0, 1]), np.array([0.1, 0.2]))]
+            )
+
+    def test_five_fold_gate_requires_mean_positive_count_and_pooled_gain(self) -> None:
+        accepted = five_fold_module.five_fold_gate(0.0002, 4, 0.00001)
+        self.assertTrue(accepted["qualifies"])
+        rejected = five_fold_module.five_fold_gate(0.0003, 5, 0.0)
         self.assertFalse(rejected["qualifies"])
         self.assertEqual(rejected["decision"], "retain_current_blend")
 

@@ -673,6 +673,117 @@ uploaded, or sent to an external model. The pre-run gates passed in order:
 /usr/bin/timeout --signal=TERM --kill-after=30s 10800s .venv/bin/python source_augmentation.py --data-dir data --artifacts-dir artifacts
 ```
 
+## Fixed CatBoost seed-average experiment
+
+On 2026-10-25 HKT, the user authorized one fixed two-seed averaging experiment.
+The hypothesis was limited to training randomness: the existing slow CatBoost
+configuration was built by `slower_learning.build_slow_catboost()` and then had
+only `random_seed` changed from `42` to `2025`. Depth `6`, learning rate `0.03`,
+`6000` iterations, patience `200`, `l2_leaf_reg=3`, `Logloss`/`AUC`, two
+threads, native handling for the four nominal columns, numeric ratings, and
+numeric NaN preservation were unchanged. The split seed remained `42` for the
+existing 90/10 CatBoost inner partition.
+
+The runner reused the exact saved outer arrays for seeds `42` and `2024`,
+validated the prior CatBoost inner arrays through `make_catboost_internal_split`,
+and fit only the `503,737` competition inner-fit rows. The `55,971` competition
+inner-validation rows were used for early stopping; the `139,927` outer
+holdout rows were used only for metrics. It reused the saved seed-42 slow
+CatBoost and corrected LightGBM probabilities after exact row-index, ID, and
+finite-probability checks. The fixed candidate was
+`.25 CatBoost42 + .25 CatBoost2025 + .5 LightGBM`.
+
+| Split seed | Seed-2025 CatBoost AUC / log loss | Averaged CatBoost AUC / log loss | Candidate blend AUC / log loss | Gain vs current 50/50 | Best count / actual trees | Fit seconds | Peak RSS MB |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 42 | 0.9576054158 / 0.2306286322 | 0.9576015135 / 0.2305446511 | 0.9578276160 / 0.2300548582 | +0.0000334072 | 4365 / 4365 | 673.851 | 1550.6 |
+| 2024 | 0.9581443754 / 0.2294766879 | 0.9581402066 / 0.2294053983 | 0.9582381409 / 0.2288764589 | +0.0000413610 | 5134 / 5134 | 790.482 | 1601.2 |
+
+The current 50/50 baseline preflight recomputed as `0.9577942088132286` on
+seed `42` and `0.9581967799255812` on seed `2024`. Both candidate gains were
+positive but below the predeclared `+0.0002` requirement, so the decision was
+`retain_current_blend`. The two holdouts overlap and are stability evidence,
+not independent confirmation. No tuning after seeing results, third split,
+refit, export, submission, Kaggle upload, or commit/push was performed.
+
+The bounded command was:
+
+```text
+/usr/bin/timeout --signal=TERM --kill-after=30s 10800s .venv/bin/python catboost_seed_average.py --data-dir data --artifacts-dir artifacts
+```
+
+Both fits completed sequentially in `1,472.386` seconds. The isolated output
+directory is `artifacts/catboost_seed_average/` and contains `47,469,400`
+bytes, below the `100 MiB` budget. It contains only the new CatBoost
+predictions, copied old CatBoost/LightGBM components, averaged CatBoost
+predictions, fixed candidate predictions, and metadata; no native validation
+model or forest artifact was created. Progress was recorded every 500 trees.
+
+The runner recorded source/dependency hashes, split and ID/label fingerprints,
+one-based `get_best_iteration()+1`, actual tree counts, fit times, resources,
+and partial-fit state. All `67` pre-existing artifact-file hashes and all four
+input CSV hashes were unchanged. The external source CSV was fingerprinted for
+integrity only and was not used for training or features. The pre-run gates
+passed in order and all `71` regression tests passed:
+
+```text
+.venv/bin/ruff format blend_experiment.py categorical_ratings.py catboost_seed_average.py compare.py feature_experiment.py lightgbm_experiment.py longer_catboost.py random_forest_experiment.py slower_learning.py source_augmentation.py train.py weighted_blend_experiment.py test_train.py
+.venv/bin/ruff check blend_experiment.py categorical_ratings.py catboost_seed_average.py compare.py feature_experiment.py lightgbm_experiment.py longer_catboost.py random_forest_experiment.py slower_learning.py source_augmentation.py train.py weighted_blend_experiment.py test_train.py
+.venv/bin/mypy blend_experiment.py categorical_ratings.py catboost_seed_average.py compare.py feature_experiment.py lightgbm_experiment.py longer_catboost.py random_forest_experiment.py slower_learning.py source_augmentation.py train.py weighted_blend_experiment.py test_train.py
+.venv/bin/python -m unittest -v test_train.py
+/usr/bin/timeout --signal=TERM --kill-after=30s 10800s .venv/bin/python catboost_seed_average.py --data-dir data --artifacts-dir artifacts
+```
+
+## Fixed five-fold cross-validation
+
+On 2026-10-25 HKT the user authorized stronger validation for the one frozen
+question: current `.5 CatBoost42 + .5 LightGBM` versus the
+`.25 CatBoost42 + .25 CatBoost2025 + .5 LightGBM` candidate. Both strategies
+were fixed before training and no alternative weights, seeds, or models were
+added later.
+
+`StratifiedKFold(n_splits=5, shuffle=True, random_state=2026)` over all
+`699,635` competition training rows produced five folds of `139,927` rows each.
+Within every fold, the existing CatBoost inner 90/10 split with seed `42`
+supplied `503,737` inner-fit rows and `55,971` early-stopping rows. Outer fold
+holdout labels never entered preprocessing, fitting, or early stopping. Each
+fold fitted three components: slow CatBoost with model seed `42`, the same
+configuration with only `random_seed=2025`, and the original corrected
+LightGBM. Fifteen sequential fits used two threads; fitted models were deleted
+after their predictions were saved.
+
+| Fold | Baseline AUC | Candidate AUC | Paired gain |
+| ---: | ---: | ---: | ---: |
+| 1 | 0.958922500 | 0.958943050 | +0.0000205 |
+| 2 | 0.958767537 | 0.958779610 | +0.0000121 |
+| 3 | 0.959275379 | 0.959265292 | -0.0000101 |
+| 4 | 0.958566904 | 0.958580429 | +0.0000135 |
+| 5 | 0.958799291 | 0.958808713 | +0.0000094 |
+
+Mean fold AUC was `0.9588663` for the baseline and `0.9588754` for the
+candidate. The mean paired gain was `+0.0000091` with descriptive standard
+deviation `0.0000103`, four of five folds positive, and a pooled out-of-fold
+gain of `+0.0000081` (`0.9588604` to `0.9588685`). The predeclared rule
+required a mean gain of at least `0.0002`, at least four positive folds, and a
+positive pooled gain. Only the direction conditions held, so the recorded
+decision is `retain_current_blend`.
+
+This is stronger stability evidence than repeated use of the same two seeded
+holdouts, but the folds are not an untouched independent test: the same data
+informed earlier choices, and pooled out-of-fold scores mix fold-specific
+fits. No export, refit, submission, or Kaggle upload was performed.
+
+The delegated worker hit a provider usage limit after 13 of 15 fits. The two
+remaining fold-5 component fits were completed by reusing
+`five_fold_cv.py` helpers with identical settings, and all five fold results
+were recomputed from the saved component predictions before the pooled scores
+were written. This completion path is recorded in the run metadata.
+
+Completed out-of-fold predictions cover all `699,635` rows exactly once with
+unique IDs in training order. The output directory
+`artifacts/five_fold_cv/` holds `51,015,226` bytes, inside the `150 MiB`
+budget. All `79` pre-existing artifact hashes and all four input CSV hashes
+were unchanged. Formatting, Ruff, mypy, and all `75` regression tests pass.
+
 ## Observed local data
 
 All three downloaded CSVs were inspected locally. Only aggregate statistics were returned to the conversation.
