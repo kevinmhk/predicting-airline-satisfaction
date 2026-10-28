@@ -1238,6 +1238,66 @@ Additional finalization-interruption test coverage was suggested, not required.
 The model fits were not rerun. No final refit, model checkpoint, submission
 export/upload, commit or push occurred.
 
+## Authorized distance-profile final export and public result
+
+The user authorized the full sequence: commit/push the existing checkpoint,
+local refit/export, one Kaggle upload, then commit/push the implementation and
+actual result without intermediate approval pauses unless something breaks.
+The first checkpoint was pushed as `fdb111eb3cda5b1900c3a5274cb4a6b5da69e633`.
+Data, artifacts, environments and credentials remain excluded from Git.
+
+Implemented `distance_profile_export.py` with focused synthetic tests. Parent
+review found the native LightGBM space-to-underscore feature-name convention;
+a real native fixture first reproduced the rejected-name guard, then verified
+the targeted fix while preserving original inference names/order. A separate
+read-only review prompted an explicit fresh-reload subprocess timeout and a
+real-child termination regression. Focused re-review checked the unchanged
+final source hashes and verified CPython direct-child cleanup plus the GNU
+external-timeout boundary; it returned `passed: true` with no blockers.
+All 127 tests, Ruff format/lint, mypy and whitespace checks pass.
+
+Ran `timeout --signal=TERM --kill-after=30s 1800s .venv/bin/python distance_profile_export.py --data-dir data --artifacts-dir artifacts`.
+Only the new LightGBM student was fitted: exactly `542` rounds on all `699635`
+competition-training rows, without evaluation sets, callbacks or early stopping.
+Fitted the profile table on all original training predictors only: `3474`
+exact-distance groups and the same 17 added features, with unchanged zero/NaN
+and unknown-distance policies. Reused the native source-only teacher (`531`
+rounds) and original slow CatBoost (`4740` trees), without refitting either.
+The teacher reproduced its complete cached training probability vector within
+the declared `1e-12` tolerance. The final blend remains exactly 50/50.
+
+Exported `artifacts/distance_profile_export/submission_slowcat_teacher_distance_profile_50_50.csv`:
+
+- SHA-256: `048abb59dc3ffb20e495dd414f7e7be3ca0e795d3fa66145516957c4b1d148e7`.
+- Exactly `299844` rows, columns `id,satisfaction`, original test-ID order,
+  unique IDs, no index and finite probabilities in `[0,1]`.
+- Independently rebuilt the full-training profile counts, means and global
+  fallbacks; reconstructed native teacher/student/CatBoost predictions in a
+  separate process. Maximum absolute native-to-CSV difference was
+  `2.220446049250313e-16`. Internal fresh-process component checks also passed.
+- All `166` prior artifacts and four CSV inputs remain unchanged. The previous
+  public-best CSV retains SHA-256
+  `25fe7ff6b4b2d0c48d6b8fabc1c1de6d6d101898e8ed8b0ee2e52acab8200247`.
+- Actual export runtime `70.897` seconds under graceful/external limits
+  `1680/1800`; output directory size `10414874` bytes. Models, table, feature
+  definitions and export metadata are local-only under the ignored artifact
+  directory.
+
+After checking the exact CSV hash/schema again, queried live competition state
+and submission history. Kaggle reported entered status and deadline
+`2026-10-31 23:59:00` UTC, with no matching prior filename. The official rules
+had been read live during the immediately preceding public-research review;
+this export uses our existing data/models and independently implemented
+features, not downloaded public prediction libraries or model weights.
+Submitted this verified file **once** via the isolated Python-3.12 Kaggle-2.2.5
+CLI. Kaggle returned submission `57726880` and nine submissions remaining
+that day. Read-back status: **COMPLETE**, public ROC AUC **0.95982**, an actual
+improvement of **+0.00137** over submission `57698563` (`0.95845`).
+The competition-list API observed rank `2027` immediately before upload and
+`1652` after scoring, with `3323` teams at those observations. These ranks
+are time-dependent; no private score or final-submission selection was verified.
+The final code/documentation commit follows this recorded public result.
+
 ## Observed local data
 
 All three downloaded CSVs were inspected locally. Only aggregate statistics were returned to the conversation.
