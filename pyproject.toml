@@ -19,6 +19,7 @@ select = ["E", "F", "I", "UP", "B"]
 "random_forest_experiment.py" = ["E402"]
 "catboost_seed_average.py" = ["E402"]
 "five_fold_cv.py" = ["E402"]
+"eco_business_specialist.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.10"

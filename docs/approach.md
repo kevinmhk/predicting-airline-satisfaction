@@ -784,6 +784,460 @@ unique IDs in training order. The output directory
 budget. All `79` pre-existing artifact hashes and all four input CSV hashes
 were unchanged. Formatting, Ruff, mypy, and all `75` regression tests pass.
 
+## Fixed Eco/business/loyal specialist experiment
+
+On 2026-10-26 HKT, the user authorized one fixed specialist experiment after
+the existing five-fold OOF exploration. The frozen group was exactly
+`Class=Eco`, `Type of Travel=Business travel`, and
+`Customer Type=Loyal Customer` (`65,542` rows; `27,051` positive and `38,491`
+negative labels). The experiment used the existing
+`StratifiedKFold(n_splits=5, shuffle=true, random_state=2026)` membership and
+the existing seed-42 90/10 inner split within each outer-fit partition. Each
+specialist fit used only group rows from the inner fit; early stopping used
+only group rows from the inner validation; predictions used only the group
+rows in that fold's outer holdout. The outer holdout was never used for
+training or early stopping, and the original external source CSV was not used.
+
+The only model was `slower_learning.build_slow_catboost()` with seed `42`,
+learning rate `0.03`, cap `6000`, depth `6`, `l2_leaf_reg=3`,
+`Logloss`/`AUC`, patience `200`, native four nominal columns, numeric ratings
+with valid zeros, numeric delay NaNs preserved, two threads, and
+`allow_writing_files=false`. The candidate copied the frozen baseline outside
+the group and used exactly `0.75 * baseline + 0.25 * specialist` inside it.
+
+| Fold | Global baseline AUC | Global candidate AUC | Paired gain | Baseline log loss | Candidate log loss | Specialist fit seconds | Trees |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.958922500 | 0.958963938 | +0.000041438 | 0.226765545 | 0.226548909 | 6.947 | 791 |
+| 2 | 0.958767537 | 0.958798956 | +0.000031419 | 0.227905161 | 0.227763440 | 7.932 | 954 |
+| 3 | 0.959275379 | 0.959296485 | +0.000021106 | 0.226650963 | 0.226477808 | 6.887 | 764 |
+| 4 | 0.958566904 | 0.958595984 | +0.000029080 | 0.227620340 | 0.227472713 | 9.330 | 1182 |
+| 5 | 0.958799291 | 0.958846761 | +0.000047470 | 0.227168224 | 0.226977895 | 8.097 | 1038 |
+
+Mean fold global AUC changed from `0.9588663222` to `0.9589004248`, a paired
+gain of `+0.0000341026`; all five folds were positive. Pooled global OOF AUC
+changed from `0.9588603718` to `0.9588946957` (`+0.0000343239`). Pooled global
+log loss changed from `0.2272220463` to `0.2270481533` (`-0.0001738930`, lower
+is better). The advancement rule required mean paired AUC gain at least
+`0.0002`, at least four positive folds, and positive pooled gain. The first
+two direction checks passed, but the minimum gain did not; the decision is
+`retain_current_blend`. No ad-hoc probability correction, weight search, or
+new model configuration was run.
+
+For the specialist group, pooled AUC was `0.9328303257` baseline,
+`0.9337368632` specialist, and `0.9335750473` for the routed candidate. Pooled
+log loss was `0.3105689108`, `0.3077579580`, and `0.3087126712`, respectively.
+Mean predicted probability versus actual prevalence was `0.4112803771` vs
+`0.4127277166` for the baseline and `0.4116546543` vs `0.4127277166` for the
+candidate. At the stated probability threshold `0.5`, subgroup error rates
+were `0.1220744` baseline and `0.1212352` candidate. These are descriptive
+calibration/error diagnostics, not label-noise or causal claims; global fold
+metrics include cross-group ordering effects.
+
+The five sequential fits completed in `48.302` seconds with two numerical
+threads and process maximum RSS `656.3 MB`. Progress was saved every 500 trees
+and models were deleted after prediction. The output is
+`artifacts/eco_business_specialist/` (`14,454,347` bytes, below the `100 MiB`
+budget) with five specialist component files, one compressed full candidate
+OOF file, metadata, and no saved validation models. All `65,542` group rows
+were assigned once; non-group candidate probabilities are bitwise unchanged.
+All `107` pre-existing artifact hashes, all four input CSV hashes, source
+hashes, feature/configuration hashes, and fold-membership hashes matched
+before and after. The source gates ran in order and all `79` regression tests
+passed. A pre-fit metadata-only runner failure was preserved separately under
+`artifacts/eco_business_specialist_initial_failure/`; it trained no model.
+No refit, export, submission, upload, commit, or push was performed.
+
+## Authorized below-gate specialist export
+
+After the specialist gate failed, the user explicitly authorized one local
+descriptive export. The export entry point is
+`eco_business_specialist_export.py`; it validates the completed five-fold
+specialist metadata, exact group/configuration/source/input fingerprints, and
+the saved row-aligned OOF provenance before fitting. It does not modify the
+existing CV artifacts, the slow-learning baseline, or any submitted CSV.
+
+The specialist was refit only on the exact training group
+`Class=Eco`, `Type of Travel=Business travel`, and
+`Customer Type=Loyal Customer`: 65,542 training rows. The five recorded
+one-based CV counts were `[791, 954, 764, 1182, 1038]`; their metadata-derived
+median selected `954` trees. The full fit used native CatBoost categorical
+handling for the original four nominal columns, numeric NaNs unchanged, and
+`learning_rate=0.03`, `depth=6`, `l2_leaf_reg=3`, `loss_function=Logloss`,
+`eval_metric=AUC`, `random_seed=42`, two threads, and
+`allow_writing_files=false`. Early stopping and an evaluation set were both
+disabled for this full fit. The recorded fit time was 8.308 seconds and total
+export runtime was 15.254 seconds.
+
+The frozen baseline was
+`artifacts/slower_learning/submission_slowcat_lightgbm_50_50.csv` with the
+metadata-confirmed SHA-256
+`5a5f985fd98a78bce5cf93e0a2dde6f228b36d25cc4d60c54b859be6d7262059`. The
+candidate preserves that baseline probability text outside the test group and
+uses `0.75 * baseline + 0.25 * specialist` only for the 28,227 matching test
+rows. The exported CSV contains exactly 299,844 rows in test order, unique IDs,
+finite probabilities in `[0, 1]`, and a maximum CSV numeric difference of
+`0.0` from the in-process candidate. A clean subprocess reloaded the saved
+native model/specification and independently reproduced all candidate
+probabilities with maximum absolute difference `0.0`.
+
+The export is explicitly designated
+`below_gate_user_authorized_not_winner`; the recorded CV gate remains false
+with decision `retain_current_blend`. The new artifacts are under
+`artifacts/eco_business_specialist_export/`. The model SHA-256 is
+`8f3cbde6329a1417ee5c7ce74b1bb2bea2572bd185e7d189c78ce3eccad452c1`, and the
+descriptive CSV SHA-256 is
+`5286a08fac14af0061dbb97f336018eec5de4629946f6120944f2c20e5eb990f`.
+The directory size is 9,309,471 bytes, below the 100 MiB limit. All 115 prior
+artifact-file hashes, all four CSV input hashes, and the source fingerprints
+matched before and after. No public-score claim, Kaggle upload, commit, or push
+was made.
+
+## Fixed LightGBM capacity experiment
+
+Tested only `num_leaves=31 -> 63`; all other original corrected-LightGBM
+settings and fit-only category preparation stayed unchanged. The two original
+outer holdouts and inner seed-42 partitions were reused. The candidate was
+`0.5 * existing slow CatBoost + 0.5 * LightGBM63`, compared with the submitted
+model configuration's slow-CatBoost/original-LightGBM blend.
+
+- Seed 42: baseline AUC `0.9577942088132286`, candidate
+  `0.957878606035489`, gain `+0.00008439722226039059`; LightGBM63
+  standalone AUC `0.9576453875612927`, best/actual iterations `375`,
+  fit time `18.922` seconds.
+- Seed 2024: baseline AUC `0.9581967799255812`, candidate
+  `0.958281830839665`, gain `+0.00008505091408383958`; LightGBM63
+  standalone AUC `0.9578302011802371`, best/actual iterations `517`,
+  fit time `22.414` seconds.
+- Both gains miss the predeclared `+0.0002`-each-seed gate. Retain the current
+  blend. These reused holdouts measure development stability, not independent
+  confirmation or expected public-score gains.
+- The real run took `52.855` seconds under internal/external limits of
+  `1680/1800` seconds. Two threads; process peak RSS reached `897.0` MB.
+  Output directory: `26,602,279` bytes. Independent recomputation verified
+  prediction IDs, blend arithmetic, AUC/log loss, source hashes, all four input
+  hashes and all 120 prior-artifact hashes. Format, Ruff, mypy and 85 tests pass.
+- Reproduce: `timeout --signal=TERM --kill-after=30s 1800s .venv/bin/python
+  lightgbm_capacity.py --data-dir data --artifacts-dir artifacts` (one shell
+  command). Outputs: `artifacts/lightgbm_capacity63/`.
+- No new dependencies, CatBoost retraining, additional folds, final refit,
+  model persistence, submission export, upload, commit or push occurred.
+  Existing uncommitted specialist work was preserved.
+
+## Fixed CPU XGBoost experiment
+
+Installed and pinned `xgboost-cpu==3.2.0` locally; its build reports
+`USE_CUDA=False`. No CUDA dependency was installed. Tested one fixed
+`XGBClassifier`: CPU histogram trees, depth 6, learning rate `0.04`, cap
+1500, minimum child weight 5, L2 1, L1 0, full row/column sampling,
+256 histogram bins, depthwise growth, model seed 42, two threads, and
+AUC-only early stopping with patience 100. The original 21 predictors and
+four nominal categories were retained; numeric NaNs/zeros were preserved.
+Category levels came only from the original inner-fit rows.
+
+The original outer seeds 42/2024 and inner seed 42 were reused. The fixed
+candidate was `0.8 * current blend + 0.2 * XGBoost`, equivalently
+`0.4 * slow CatBoost + 0.4 * original LightGBM31 + 0.2 * XGBoost`.
+No LightGBM63, seed averaging or specialist was added.
+
+- Seed 42: standalone XGBoost AUC `0.9572204235205716`; candidate
+  AUC `0.9577888987828738` versus baseline `0.9577942088132286`;
+  gain `-0.00000531003035486588`. Best iteration index/count `730/731`,
+  actual boosted rounds `831`; measured fit call `37.236` seconds.
+- Seed 2024: standalone AUC `0.9575214242911765`; candidate
+  AUC `0.9581790036051865` versus baseline `0.9581967799255812`;
+  gain `-0.000017776320394680134`. Best iteration index/count `772/773`,
+  actual boosted rounds `873`; measured fit call `38.877` seconds.
+- Both blend gains are negative: reject this configuration and retain the
+  incumbent. The result does not rule out all XGBoost configurations. Reused
+  holdouts are screening evidence, not independent confirmation.
+- Actual run `84.426` seconds under internal/external limits `1680/1800`;
+  process peak RSS `904.2` MB, outputs `20,940,142` bytes. The native fit
+  call includes construction of the prepared fit/evaluation frames.
+- Independent checks reproduced ID alignment, fixed arithmetic, AUC and
+  log loss, and verified source hashes, four input hashes and all 124
+  prior-artifact hashes. Standalone log loss uses XGBoost's float32 output;
+  the independent check preserved that dtype to reproduce sklearn's path.
+  Format, Ruff, mypy and all 89 tests pass, including a regression for the
+  CPU distribution's package-metadata name.
+- Command: `timeout --signal=TERM --kill-after=30s 1800s .venv/bin/python xgboost_experiment.py --data-dir data --artifacts-dir artifacts`.
+  Results: `artifacts/xgboost_cpu/`. No model persistence, additional folds,
+  final refit, submission export, upload, commit or push occurred.
+
+## Fixed source-only teacher feature experiment
+
+Tested one added numeric predictor, `source_teacher_probability`, in the
+original 31-leaf competition LightGBM. The final candidate remained an equal
+blend of the existing slow CatBoost and this student. No LightGBM63, XGBoost,
+seed averaging, specialist, source-row augmentation or weight search was added.
+
+Reused `clean_source_rows` unchanged and reproduced its previous report:
+129,859 unique source rows remained after excluding all exact 21-feature
+matches with competition train/test rows (17 train, 4 test). Matching excluded
+IDs and competition labels; near-duplicate/shared-entity exclusion is not
+claimed. Existing source-license/provenance uncertainty remains applicable.
+
+The teacher learned only from source labels. A source-only stratified 90/10
+split (seed 42; 116,873 fit / 12,986 validation) selected 531 rounds using
+AUC early stopping. The source-validation AUC was `0.994591552246396`, not a
+competition score. A fixed 531-round teacher then fitted all clean source
+rows without an evaluation set or early stopping. Its cached competition-train
+probabilities cover all 699,635 training IDs; no competition labels influenced
+teacher training or iteration selection. Students used the original outer
+42/2024 holdouts and inner seed-42 partitions, with original settings and only
+one added numeric feature; categories remained fit-partition-only.
+
+- Seed 42: baseline AUC `0.9577942088132286`; candidate
+  `0.9580277365442882`; gain `+0.00023352773105955738`.
+  Student standalone AUC `0.957833997000424`, best/actual rounds `545`,
+  fit time `22.631` seconds.
+- Seed 2024: baseline AUC `0.9581967799255812`; candidate
+  `0.9584612650032445`; gain `+0.0002644850776633012`.
+  Student standalone AUC `0.9580359362484241`, best/actual rounds `313`,
+  fit time `15.502` seconds.
+- Both gains pass the frozen `+0.0002`-each-seed screening gate. These
+  overlapping, repeatedly reused holdouts are not independent confirmation;
+  do not infer a public leaderboard gain or replace the submitted model yet.
+- Actual run: `70.903` seconds under internal/external limits `1680/1800`.
+  Output: `43,623,019` bytes; observed process peak RSS `978.8` MB.
+  Independent checks recomputed cleaning, source-only split fingerprints,
+  student membership/ID alignment, teacher-feature cache alignment, blend
+  arithmetic and AUC/log loss. Four input and 127 prior-artifact hashes
+  remain unchanged. Format, Ruff, mypy and 92 tests pass.
+- Command: `timeout --signal=TERM --kill-after=30s 1800s .venv/bin/python source_teacher_experiment.py --data-dir data --artifacts-dir artifacts`.
+  Outputs: `artifacts/source_teacher_feature/`. No new dependency, final
+  competition-data refit, test prediction/export, upload, commit or push.
+  The source-only teacher's full-source fit is part of the authorized
+  experiment, not a final competition-model refit.
+
+## Fixed five-fold source-teacher validation
+
+Reused the verified source-only 531-round teacher probability cache and the
+original five-fold CatBoost seed-42/LightGBM31 OOF components. Trained only
+five new LightGBM31 students with the one appended teacher-probability
+feature. No teacher, CatBoost or baseline LightGBM retraining occurred.
+Regenerated the same stratified folds (seed 2026) and original fold-local
+inner partitions (seed 42), including exact membership fingerprints.
+
+The fixed candidate was `0.5 * cached CatBoost42 + 0.5 * new student`;
+its comparator was the original `0.5 * cached CatBoost42 + 0.5 * cached
+LightGBM31` baseline, not the earlier two-seed-averaged challenger.
+
+- Fold 1: AUC gain `+0.0003034547102925833`; student best rounds `795`.
+- Fold 2: gain `+0.00020930450697009828`; best rounds `299`.
+- Fold 3: gain `+0.0002462851715884229`; best rounds `417`.
+- Fold 4: gain `+0.00022601720723969265`; best rounds `777`.
+- Fold 5: gain `+0.00026121827398406516`; best rounds `533`.
+- Mean fold AUC: baseline `0.9588663222264138`, candidate
+  `0.9591155782004288`; mean paired gain `+0.00024925597401497245`.
+- Pooled OOF AUC: baseline `0.9588603718243917`, candidate
+  `0.9591080056460375`; gain `+0.0002476338216458318`.
+  Pooled log loss: `0.22722204633160709 -> 0.22594907738935158`.
+- Five of five folds improved, each by more than `0.0002`. The frozen gate
+  passes: mean gain at least `0.0002`, at least four positive folds, and
+  positive pooled gain. These previously used development folds are not an
+  untouched final test, and the result does not forecast a public score.
+- Real run `123.471` seconds under internal/external limits `1680/1800`.
+  Outputs `36,051,363` bytes under `artifacts/source_teacher_cv/`.
+  `oof_predictions.npz` contains all 699,635 training rows exactly once,
+  with IDs, folds, teacher/CatBoost/student/baseline/candidate probabilities.
+- Independent recomputation verified all five fold and pooled AUC/log-loss
+  metrics, teacher-cache identity, old OOF equality, exact fold and inner
+  membership, per-fold component alignment, and declared blend arithmetic.
+  All 131 prior artifacts and four inputs remain byte-identical. Format,
+  Ruff, mypy and 95 tests pass.
+- Command: `timeout --signal=TERM --kill-after=30s 1800s .venv/bin/python source_teacher_cv.py --data-dir data --artifacts-dir artifacts`.
+  At CV closure no final competition refit, test prediction/export, upload,
+  commit or push had occurred. The median of the five one-based best counts
+  is `533`; the separately authorized export is recorded below.
+
+## Authorized qualified source-teacher export
+
+After explicit local-refit/export approval, rebuilt the source-only teacher at
+its recorded 531 rounds and fitted the student on all 699,635 competition
+training rows at the median of the five one-based CV counts
+`[795, 299, 417, 777, 533] -> 533`. Both fits used fixed counts, no evaluation
+set and no early-stopping callbacks. Teacher rows remained the same 129,859
+clean external examples; the reproduced teacher probabilities matched all
+699,635 cached training predictions exactly (`max_abs_difference=0.0`).
+
+Reused the unchanged 4,740-tree slow CatBoost native model with SHA-256
+`85466352ce440da5aea2234b034a55df1b8c7e35c33c2fed1b66ea8377924653`.
+The final prediction is `0.5 * existing CatBoost + 0.5 * new student`.
+Teacher and student models, separate categorical-level files, original and
+extended feature specifications, lineage and metadata are saved under
+`artifacts/source_teacher_export/`.
+
+- CSV: `artifacts/source_teacher_export/submission_slowcat_source_teacher_50_50.csv`.
+- SHA-256: `25fe7ff6b4b2d0c48d6b8fabc1c1de6d6d101898e8ed8b0ee2e52acab8200247`.
+- Exactly 299,844 unique test IDs in original order; columns `id,satisfaction`;
+  finite probabilities in `[0,1]`, no index column. CSV size: 8,203,941 bytes.
+- Both the runner's fresh subprocess and a separate independent native-model
+  verification reproduced the test predictions. Independent CSV comparison
+  had maximum difference `0.0`; all teacher-cache training values also matched
+  exactly. LightGBM's native model names replace spaces with underscores;
+  preparation preserves the recorded original feature order.
+- Actual teacher/student fits: `5.121` / `21.393` seconds. Total run:
+  `57.118` seconds, under the 28/30-minute limits. Export directory:
+  `11,978,069` bytes. All four inputs and 138 prior artifacts remain unchanged,
+  including the previously submitted CSV. Format, Ruff, mypy and 104 tests pass.
+- Command: `timeout --signal=TERM --kill-after=30s 1800s .venv/bin/python source_teacher_export.py --data-dir data --artifacts-dir artifacts`.
+  The local export itself did not establish a leaderboard result.
+  At local-export completion no Kaggle upload, commit or push had occurred.
+  The old CSV remains unchanged.
+
+After separate explicit submission approval, uploaded the exact verified CSV
+once. Kaggle submission `57698563` completed with public ROC AUC `0.95845`,
+versus the prior `0.95831` (`+0.00014`). The submissions API confirmed the
+filename `submission_slowcat_source_teacher_50_50.csv` and `COMPLETE` status;
+competition-list API reads showed rank `2173` before and `1968` after scoring
+(the displayed ranks are time-dependent). The CLI reported nine submissions
+remaining that day. No private score or final-submission selection was
+established. No commit or push occurred.
+
+## Fixed CatBoost teacher-feature experiment
+
+Tested the same frozen source-only teacher probability as one added numeric
+CatBoost feature. Retained all slow-CatBoost settings (depth 6, learning rate
+0.03, cap 6000, patience 200, L2 3, model seed 42, two threads), original four
+nominal predictors, and numeric rating/NaN/zero handling. The existing source
+teacher and winning teacher-feature LightGBM were not retrained.
+
+Used the exact original outer seeds 42/2024 and inner seed-42 partitions.
+The comparator is now the **new** public-0.95845 configuration:
+`0.5 * original slow CatBoost + 0.5 * teacher-feature LightGBM`.
+The candidate changes only that CatBoost component; the LightGBM component
+is the cached `student_probability`, not its old `baseline_probability` or
+its complete blend. Cached holdout teacher features matched the full cache.
+
+- Seed 42: current baseline AUC `0.9580277365442882`; candidate
+  `0.9580026837378872`; gain `-0.000025052806400971406`.
+  New standalone CatBoost AUC `0.957913910567226`; best/actual count
+  `1532` (zero-based best index `1531`); fit `286.186` seconds.
+- Seed 2024: baseline `0.9584612650032445`; candidate
+  `0.9582670117556917`; gain `-0.00019425324755273365`.
+  New standalone CatBoost AUC `0.9581529400492719`; best/actual count
+  `1561` (index `1560`); fit `271.661` seconds.
+- Both blend gains are negative, so the frozen `+0.0002`-each-seed gate
+  fails. Retain the public-0.95845 submission. Although standalone CatBoost
+  improved on both splits, that did not improve its mixture with the current
+  teacher-feature LightGBM; individual model gains do not necessarily add.
+  This is a finding about this fixed configuration, not a proof that all
+  teacher-feature CatBoost variants or other mixtures fail.
+- Actual run: `571.536` seconds within internal/external limits `2580/2700`.
+  Outputs: `26,613,405` bytes under `artifacts/catboost_teacher_feature/`.
+  Independent recomputation verified component identity, prediction IDs,
+  split fingerprints, frozen teacher features, new-incumbent blend arithmetic,
+  AUC/log loss and the failed gate. All 145 prior artifacts and four inputs
+  remain unchanged. Format, Ruff, mypy and all 110 tests pass.
+- Command: `timeout --signal=TERM --kill-after=30s 2700s .venv/bin/python catboost_teacher_feature.py --data-dir data --artifacts-dir artifacts`.
+  No further CV, final refit, model persistence, export, upload, dependency
+  addition, commit or push occurred. The two reused holdouts remain screening
+  evidence, not independent confirmation.
+
+## Fixed label-free distance-group profile experiment
+
+Public research identified distance-group context as a different information-use
+hypothesis. Inspiration: [Koumei Maki's feature ladder](https://www.kaggle.com/competitions/playground-series-s6e10/discussion/747358)
+and its [Apache-2.0 notebook, version 3](https://www.kaggle.com/code/koumeimaki/s6e10-feature-ladder-what-helps-lightgbm).
+The author reports a broader count/mean/residual block gain of about 0.00124
+on reused five-fold development predictions; that is not our measured result.
+Our independently implemented smaller block does not copy or execute that
+notebook, use its outputs, or assume distance uniquely identifies a real route.
+
+Added exactly 17 numeric predictors to the existing teacher-feature LightGBM31:
+per-exact-Flight-Distance row count plus means of the other 16 original numeric
+predictors (13 ratings, age and two delays). No categorical-code means,
+teacher-probability aggregates, target encoding, residuals or parameter search.
+Original inputs, rating-zero/NaN semantics, four native categorical columns,
+source-only teacher cache, LightGBM settings and original slow CatBoost stayed
+unchanged. The student has 39 predictors: 35 numeric and four categorical.
+
+For each original outer seed 42/2024, fitted the table using **only the 503,737
+recorded inner model-fit predictors**, excluding the 55,971 early-stopping rows,
+139,927 outer holdout rows, test and source rows. Counts use group size; means
+skip numeric NaNs and preserve observed zero. Unknown/missing distance keys get
+count zero and model-fit global means; all-NaN columns remain NaN. Category
+levels and early stopping remain inside the same recorded inner partition.
+The teacher was not refitted and learned no competition labels.
+
+Compared `0.5 * unchanged slow CatBoost + 0.5 * new profile/teacher student`
+against the current public-0.95845 configuration, using verified ID-aligned
+cached components rather than the obsolete pre-teacher baseline:
+
+- Seed 42: baseline AUC `0.9580277365442882`; candidate
+  `0.9593360799332391`; paired gain `+0.0013083433889509166`.
+  Student-only AUC `0.9594192451978314`; best/native actual rounds `560`;
+  fit `27.137` seconds; fitted table contains `3425` distance groups.
+- Seed 2024: baseline `0.9584612650032445`; candidate
+  `0.9595753150002255`; paired gain `+0.0011140499969810591`.
+  Student-only AUC `0.9594326832310826`; best/native actual rounds `401`;
+  fit `21.694` seconds; fitted table contains `3423` distance groups.
+- The frozen `+0.0002`-each-seed screening gate passes. These overlapping,
+  repeatedly reused holdouts are stability evidence, not untouched confirmation
+  or a forecast of the public/private leaderboard gain. Keep the already
+  submitted 0.95845 CSV until separately approved stronger validation/export.
+- Actual total run `64.020` seconds under graceful/external limits `1680/1800`.
+  Outputs `27,027,063` bytes in `artifacts/distance_profile_feature/` include
+  two prediction CSVs, two fitted profile NPZ tables, metadata and the protected
+  baseline manifest; no model checkpoint or submission was saved.
+- Independent verification rebuilt both tables and fallback means directly from
+  the recorded inner-fit rows, checked table-membership fingerprints and
+  prediction IDs, recomputed both blends and all AUC/log-loss metrics, and
+  confirmed all 148 prior artifacts, four inputs and experiment source hashes
+  unchanged. Ruff format/lint, mypy and all 118 tests pass.
+- Command: `timeout --signal=TERM --kill-after=30s 1800s .venv/bin/python distance_profile_experiment.py --data-dir data --artifacts-dir artifacts`.
+  No five-fold profile validation, teacher/CatBoost refit, final full-data refit,
+  submission export/upload, project dependency addition, commit or push occurred.
+
+## Fixed five-fold distance-profile validation
+
+After separate approval, trained exactly five new original-configuration
+LightGBM31 students with the same 17 distance-group features. Reused the frozen
+source-only teacher cache and original CatBoost OOF predictions. The comparator
+is the accepted teacher-feature blend (`source_teacher_cv`'s **candidate**),
+not its historical pre-teacher baseline. Each profile table and categorical
+mapping used only that fold's recorded inner model-fit predictors; no
+held-out/early-stopping/test/source rows entered the profile table. No teacher
+or CatBoost retraining, weight search or new dependency was required.
+
+Paired blend AUC gains versus the current public-0.95845 configuration:
+
+- Fold 1: baseline `0.9592259550223543`, candidate `0.9605510238223502`,
+  gain `+0.0013250687999959432`; selected/native rounds `470`.
+- Fold 2: baseline `0.9589768416152670`, candidate `0.9601742974329484`,
+  gain `+0.0011974558176813810`; rounds `542`.
+- Fold 3: baseline `0.9595216637455891`, candidate `0.9608322048344501`,
+  gain `+0.0013105410888609725`; rounds `1056`.
+- Fold 4: baseline `0.9587929214165344`, candidate `0.9599223961815564`,
+  gain `+0.0011294747650220094`; rounds `414`.
+- Fold 5: baseline `0.9590605092023987`, candidate `0.9603313930907451`,
+  gain `+0.0012708838883463969`; rounds `736`.
+
+Mean paired gain `+0.0012466848719813405`; all five folds positive.
+Pooled OOF baseline `0.9591080056460375`, candidate `0.9603568885695387`,
+gain `+0.0012488829235012266`. The unchanged advancement gate passes:
+mean gain >=0.0002, at least four positive folds and positive pooled gain.
+The median selected count is `542`; it is a possible fixed refit count, not
+permission to refit. These reused development folds are stability evidence,
+not an untouched test or a promised public/private-score gain.
+
+Actual command: `timeout --signal=TERM --kill-after=30s 1800s .venv/bin/python distance_profile_cv.py --data-dir data --artifacts-dir artifacts`.
+Total runtime `186.764` seconds, within graceful/external limits `1680/1800`;
+outputs `37,095,944` bytes under `artifacts/distance_profile_cv/`.
+Independent read-only verification rebuilt all five tables/global fallbacks
+from their recorded inner-fit memberships, checked 39-feature definitions,
+source/teacher/CatBoost identities and current-baseline arithmetic, then
+recomputed every saved fold and pooled AUC/log loss and the gate. Every one of
+699,635 training rows has exactly one OOF prediction. All 154 prior artifacts
+and four inputs remain unchanged. Format, Ruff, mypy and all 120 tests pass.
+Independent code review also completed against unchanged runner/test SHA-256
+fingerprints. Its initial timeout concern assumed an unwrapped invocation;
+a focused second review inspected the actual documented external `timeout`
+launcher and returned `passed: true`, with no correctness/security blockers.
+Additional finalization-interruption test coverage was suggested, not required.
+The model fits were not rerun. No final refit, model checkpoint, submission
+export/upload, commit or push occurred.
+
 ## Observed local data
 
 All three downloaded CSVs were inspected locally. Only aggregate statistics were returned to the conversation.
