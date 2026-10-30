@@ -1298,6 +1298,72 @@ The competition-list API observed rank `2027` immediately before upload and
 are time-dependent; no private score or final-submission selection was verified.
 The final code/documentation commit follows this recorded public result.
 
+## Fixed source-neighbour probability screen
+
+Approved one final-sprint information-transfer test against the accepted
+public-0.95982 distance-profile configuration. Reused the existing
+label-independent source deduplication/overlap exclusion policy: `129859`
+clean source rows, with no competition target available to the neighbour
+feature helper. For each competition row, considered all cleaned source rows
+with the same exact Flight Distance. The new probability is the source-label
+average weighted by `exp(-d)`, where `d` counts unequal values among the other
+20 original predictors. Numeric equality is exact (no rounding); two missing
+numeric values agree, observed zero remains valid, and categorical missing
+values use the same explicit token. Missing/unseen distance keys use the
+cleaned-source positive prevalence `0.43437882626541097`. Alpha is fixed at
+one; no neighbour-count, smoothing or weight search was run.
+
+Chunked both query/reference work to at most `250000` pair elements, without a
+full query/reference/20-feature tensor. Appended this single numeric feature
+to the unchanged 39-feature teacher/profile student, producing 40 predictors
+(36 numeric, four nominal). Teacher, original slow CatBoost, LightGBM31
+settings, original inner/outer partitions and 50/50 ensemble weights stayed
+fixed. Reused each seed's verified profile table fitted only on its inner
+model-fit predictors. The comparator is the saved distance-profile
+**candidate_probability**, not its obsolete baseline column.
+
+Real measurement:
+
+- Seed 42: baseline AUC `0.9593360799332391`; candidate
+  `0.9593987480585240`; gain `+0.00006266812528488153`.
+  Student-only AUC `0.9593846704046880`; best/native rounds `911`;
+  fit `41.262` seconds.
+- Seed 2024: baseline `0.9595753150002255`; candidate
+  `0.9596805647640434`; gain `+0.00010524976381787177`.
+  Student-only AUC `0.9595619786730625`; best/native rounds `448`;
+  fit `24.214` seconds.
+- Both local gains are positive but below the frozen `+0.0002`-each-seed
+  threshold. Retain the accepted public-0.95982 submission. No five-fold
+  neighbour validation, final refit, export or upload followed this failed
+  screen; the gate was not relaxed. Reused holdouts remain selection/stability
+  evidence, not independent confirmation.
+
+Command: `timeout --signal=TERM --kill-after=30s 1800s .venv/bin/python source_neighbor_experiment.py --data-dir data --artifacts-dir artifacts`.
+Actual total runtime `95.506` seconds within graceful/external limits
+`1680/1800`. Outputs `33960425` bytes under `artifacts/source_neighbor_feature/`:
+one frozen ID-indexed source-neighbour training cache, two holdout prediction
+CSVs and comparison metadata, without model checkpoints.
+
+Parent review added failing regressions before fixing query-step skips when
+the pair cap is smaller than the requested block, NaN-aware cached profile
+comparison, incomplete reused dependency fingerprints and loss of the primary
+exception during later integrity failures. A separate all-positive source
+fixture reproduced weighted-mean roundoff slightly above one; clipping only
+that mathematically bounded numerical result fixed the strict probability
+check. Independent code re-review passed against the frozen final source
+hashes. Format, Ruff, mypy and all 137 tests pass.
+
+Read-only verification checked all cached IDs/probability ranges, splits,
+profile memberships, blend arithmetic and saved AUC/log-loss metrics. An
+independent scalar/pandas oracle covered `4487` label-independently selected
+rows spanning all observed distance keys plus random rows; its maximum
+probability difference was `5.551115123125783e-16`. All 171 prior artifacts and
+four input CSV hashes remain unchanged, including the previously submitted
+profile CSV SHA-256 `048abb59dc3ffb20e495dd414f7e7be3ca0e795d3fa66145516957c4b1d148e7`.
+The screen saved source/tests/docs without a model refit, export or upload.
+The user subsequently authorized committing and pushing this completed screen;
+the failed advancement decision remains unchanged.
+
 ## Observed local data
 
 All three downloaded CSVs were inspected locally. Only aggregate statistics were returned to the conversation.
