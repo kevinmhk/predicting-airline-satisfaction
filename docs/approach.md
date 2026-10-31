@@ -1647,6 +1647,58 @@ artifacts, virtual environment and credentials remain ignored. Earlier sections'
 candidate has **only** passed the reused-holdout screen; it is not yet a
 five-fold-qualified export or Kaggle submission.
 
+## Direct route-pair refit, export and Kaggle submission
+
+User explicitly authorized fit/export/upload for the selected 50/25/25 blend,
+then confirmed continuation. No new five-fold model confirmation or additional
+candidate search was performed. Full-data counts were frozen before fitting:
+ceil(median(`189,249`)) = **219** context-student trees with 127 leaves;
+ceil(median(`609,614`)) = **612** hierarchical-student trees with 31 leaves.
+Both fit all **699,635 training rows**, without an eval set, early stopping or
+callbacks. Each uses the exact existing five-fold, seed-42, smoothing-20
+cross-fit training feature helper. Full-training inference maps never supplied
+self-target-encoded training features. Teacher 531 and CatBoost 4740 remained
+frozen; profile aggregates used all training predictors only, not test rows.
+
+`route_pair_export.py` / `test_route_pair_export.py` reuse the existing fitting,
+profile, teacher and metadata helpers. They persist compact full-training route
+maps, two native students, feature/category schemas and own-ID test-component
+probabilities. All test-row map values matched the original encoders before
+model acceptance. Fresh-interpreter native inference reproduced every component
+and the fixed `0.5 Cat + 0.25 context + 0.25 hierarchical` export; independent
+post-run verification had maximum difference **0.0** on all **299,844 rows**.
+All full-training route-map groups, parent priors and the 3,474-group profile
+table were independently rebuilt/checked. CSV headers are exactly
+`id,satisfaction`, IDs retain original test order, probabilities are finite and
+in `[0,1]`. All **206 prior artifacts and four inputs** stayed byte-identical.
+Run completed in **158.834 seconds**, output **26,395,228 bytes**.
+
+New output:
+`artifacts/route_pair_export/submission_slowcat_route_context_hierarchical_50_25_25.csv`
+SHA-256 `fd3dfdec0c6cdf9ba9b48d60648dde357d2ef04406e60e99fd34437c6326c176`.
+Export metadata is `artifacts/route_pair_export/export_metadata.json`.
+Independent review passed after a reproduced cleanup regression was fixed:
+failed exports now clear submission/reload metadata as well as removing newly
+publishable output files. Current reviewed runner SHA
+`4d93e301bc5967d2ee43807e4d285a5bd15b3538f76cf775df375b5476484a48`, test SHA
+`a80921786311941c0425b492f93341b6bb26168d5c65d261e7837c876fd38829`.
+Format, Ruff, mypy and all **165 tests** pass. Reviewed parent preflight also
+verified the actual absolute-to-relative cached qualification path and exact
+saved component lineage before full-data fits.
+
+The verified exact CSV was uploaded **once**, after live history/deadline/entry
+checks found no duplicate. Kaggle API readback confirms submission **57823822**,
+**COMPLETE**, public ROC AUC **0.96001**. The preceding **57726880** remains
+preserved at **0.95982**; decimal score delta **+0.00019**. Leaderboard API rank
+was **1847** immediately before upload and **1796** at the scoring check,
+among **3623** teams; this is a time-dependent observation, not a final rank.
+Upload returned **9 submissions remaining that day**. No retry, second upload,
+private-score claim or final-submission-selection change occurred.
+
+User subsequently authorized commit/push for this export checkpoint. It includes
+`route_pair_export.py`, `test_route_pair_export.py` and these two updated docs;
+raw data, generated artifacts and the virtual environment remain excluded.
+
 ## Observed local data
 
 All three downloaded CSVs were inspected locally. Only aggregate statistics were returned to the conversation.
