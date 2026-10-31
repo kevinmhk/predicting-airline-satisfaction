@@ -1364,6 +1364,289 @@ The screen saved source/tests/docs without a model refit, export or upload.
 The user subsequently authorized committing and pushing this completed screen;
 the failed advancement decision remains unchanged.
 
+## Fixed distance-group residual screen
+
+Approved one fixed block of 16 numeric features:
+`original passenger value - mapped distance-group mean`, for the original
+numeric predictors other than Flight Distance. Retained the original 39
+teacher/profile predictors; did not add the rejected source-neighbour feature.
+The new student has 55 predictors (51 numeric, four nominal). Reused each
+seed's verified profile table fitted only on the recorded inner model-fit
+predictors, the frozen source-only teacher and original slow CatBoost. No
+new aggregation, target encoding, settings or ensemble-weight search occurred.
+Numeric NaNs, observed zero and the existing unseen-distance global-mean
+fallback remain unchanged.
+
+Compared the complete fixed 50/50 blend against the accepted public-0.95982
+configuration on the same original splits:
+
+- Seed 42: baseline AUC `0.9593360799332391`, candidate
+  `0.9592117485346789`, gain `-0.0001243313985601624`.
+  Student-only AUC `0.9592748841148006`; selected/native rounds `392`;
+  fit `29.180` seconds.
+- Seed 2024: baseline `0.9595753150002255`, candidate
+  `0.9595421606779668`, gain `-0.00003315432225869941`.
+  Student-only AUC `0.9593470746406878`; rounds `449`;
+  fit `31.922` seconds.
+- Both gains are negative, so the frozen `+0.0002`-each-seed gate fails.
+  Retain the public-0.95982 submission. No residual five-fold validation,
+  full-data refit, export or upload followed. These reused holdouts remain
+  diagnostic selection/stability evidence, not independent confirmation.
+
+Supported invocation is from the project root with relative arguments:
+`timeout --signal=TERM --kill-after=30s 1800s .venv/bin/python distance_residual_experiment.py --data-dir data --artifacts-dir artifacts`.
+Actual total measurement `90.208` seconds under graceful/external limits
+`1680/1800`, with `26651755` output bytes under
+`artifacts/distance_residual_feature/`. Only two held-out prediction CSVs,
+metadata and a protected-artifact manifest were saved, not model checkpoints.
+
+Parent preflight checked actual cached-profile identities and residual
+arithmetic before fitting. Independent read-only verification rebuilt the
+profile tables from recorded inner-fit rows, checked all original feature
+values remained unchanged and residual arithmetic on 1,024 held-out rows,
+then recomputed both baseline/candidate/standalone AUC and log loss, own-ID
+alignment and blend/gate arithmetic. All 175 prior artifacts and four inputs
+remain unchanged, including the accepted submission CSV. Independent code
+review passed against the frozen runner/test hashes; its nonblocking notes
+include the required project-cwd relative launcher and possible additional
+provenance/test coverage. Format, Ruff, mypy and all 140 tests pass.
+Source/tests/docs for this screen remain uncommitted; no commit/push was
+included in this approval.
+
+## Three-experiment final sprint
+
+User authorized up to **three new experiments**, stopping at the first to gain
+at least `+0.0002` AUC on **both** original holdouts, otherwise stopping after
+three. Predeclared independent order: categorical Flight Distance duplicate,
+127-leaf capacity, then fold-safe route target encoding. Each starts from the
+accepted 39-feature teacher/profile configuration with the original slow
+CatBoost and fixed 50/50 blend; rejected residual/neighbour features are absent.
+Each has graceful/external limits `1680/1800` seconds, sequential fits and two
+threads. No new dependencies, parameter/weight search, CV/refit/export/upload,
+or commit/push were authorized. All three completed; **none passed**, so stop.
+
+1. **Categorical Flight Distance duplicate:** retain numeric distance and all
+   39 existing predictors; append one canonical string category, with its native
+   category vocabulary learned only on inner-fit rows. Model has 40 predictors
+   and five categorical columns; original 31-leaf settings unchanged.
+   - Seed 42 AUC `0.9593017767357015`, gain `-0.000034303197537610686`;
+     selected/native rounds `188`, fit `17.326` seconds.
+   - Seed 2024 AUC `0.959614366413208`, gain `+0.000039051412982438194`;
+     rounds `153`, fit `15.345` seconds.
+   - Total `49.846` seconds, `26618282` output bytes; 179 prior artifacts and
+     four inputs unchanged. Saved under `artifacts/final_sprint_distance_category/`.
+2. **127 leaves:** change only `num_leaves: 31 -> 127`; retain the accepted
+   39-feature representation, four categories and all other model settings.
+   - Seed 42 AUC `0.959381044370554`, gain `+0.00004496443731494271`;
+     rounds `239`, fit `21.349` seconds.
+   - Seed 2024 AUC `0.9596189288055259`, gain `+0.00004361380530037984`;
+     rounds `266`, fit `21.953` seconds.
+   - Total `57.125` seconds, `26617756` bytes; 182 prior artifacts and four
+     inputs unchanged. Saved under `artifacts/final_sprint_leaves127/`.
+3. **Route target encoding:** append two numeric features for exact Flight
+   Distance and Flight Distance × Class. Existing sklearn 1.5.2 TargetEncoder
+   uses binary target, smoothing `20.0`, five shuffled stratified inner cross-fit
+   folds and seed `42`. `fit_transform` receives **only inner model-fit rows and
+   labels**. Early-stopping and outer-holdout rows use `transform` from the
+   encoder fitted on all inner-fit rows. Unseen keys receive inner-fit prevalence;
+   missing keys are an explicit category. Collision-safe JSON pair keys preserve
+   the original predictor values. Model has 41 predictors, four categories and
+   the unchanged 31-leaf settings.
+   - Seed 42 AUC `0.959470414120363`, gain `+0.00013433418712394118`;
+     rounds `433`, fit `23.767` seconds.
+   - Seed 2024 AUC `0.9597588993515919`, gain `+0.00018358435136633933`;
+     rounds `499`, fit `25.621` seconds.
+   - Total `73.038` seconds, `26621581` bytes; 185 prior artifacts and four
+     inputs unchanged. Saved under `artifacts/final_sprint_route_target_encoding/`.
+
+The two unchanged baseline AUCs are `0.9593360799332391` and
+`0.9595753150002255`. The strongest trial improved both but still missed the
+unchanged practical gate. At that three-trial checkpoint, no fourth
+configuration or combination was authorized. Keep public ROC AUC `0.95982`;
+local holdouts remain reused model-selection data, not untouched confirmation.
+
+One fixed-choice runner, `final_sprint_experiments.py`, and focused
+`test_final_sprint_experiments.py` cover all three, reusing the existing cache,
+profile, split, model, baseline and gate helpers. Supported project-root command:
+`timeout --signal=TERM --kill-after=30s 1800s .venv/bin/python final_sprint_experiments.py --experiment distance_category --data-dir data --artifacts-dir artifacts`;
+substitute the next declared choice only after verifying rejection of the prior.
+Parent preflight exercised actual teacher/profile caches and incumbent AUCs.
+Independent read-only code review passed against runner SHA-256
+`06fb5c013978a580ffaf356587bf55db0404b0892e84b14614d660310663c9fb`
+and test SHA-256
+`48d7a979af637893497000f5fc05c634131d088661f05fb3ad7bce65aa3e1fc8`.
+Synthetic smoothed-count oracle checks the encoding's actual complementary
+inner folds, original schema/value preservation and unseen-key fallback.
+Read-only post-run verification recomputed all six saved baseline/candidate/
+standalone AUC and log-loss comparisons, own-ID alignment, blend and gate
+arithmetic, actual parameter dictionaries, schemas and input/source/protected
+artifact hashes. The public submission CSV remains byte-identical. Format,
+Ruff, mypy and all 144 tests pass. New runner/tests and existing docs/residual
+work remain uncommitted; no further experiment or submission was performed.
+
+## Two additionally authorized, lesson-driven follow-ups
+
+After the three-trial stop, the user explicitly authorized **two more** trials,
+with the same stop-first-pass rule and `+0.0002` on both original holdouts.
+Both compare against the **unchanged accepted 39-feature profile blend**, not
+against an easier or superseded baseline. Both completed; **neither qualified**.
+No third follow-up, new combination, confirmation CV, refit/export/upload or
+commit/push followed. Existing submitted public ROC AUC `0.95982` stays selected.
+
+1. `route_target_encoding127`: combine the strongest earlier feature block
+   (two route target encodings) with 127 leaves. All other 41-feature student,
+   encoding, validation and fixed 50/50 settings remain unchanged.
+   - Seed 42 AUC `0.9595202482410241`, gain `+0.00018416830778500426`;
+     selected/native rounds `242`, fit `23.162` seconds.
+   - Seed 2024 AUC `0.9597192815712393`, gain `+0.00014396657101378718`;
+     rounds `188`, fit `19.765` seconds.
+   - Total `66.882` seconds; `26622228` output bytes; all 188 prior artifacts
+     and four inputs unchanged. Saved in
+     `artifacts/final_sprint_route_target_encoding127/`.
+   - Capacity helped seed 42 but hurt seed 2024 compared with the preceding
+     31-leaf two-encoding trial. Those gains do not add consistently.
+2. `route_context_target_encoding`: retain the simpler 31-leaf student and
+   extend the two-encoding block with exact Flight Distance × Type of Travel
+   and Flight Distance × Customer Type. Four target features total; 43 student
+   predictors (39 numeric, four categorical). The first two encodings stay
+   bit-identical, with no rejected categorical-distance/residual/neighbour block.
+   - Seed 42 AUC `0.9595058750911692`, gain `+0.00016979515793014155`;
+     rounds `493`, fit `26.827` seconds.
+   - Seed 2024 AUC `0.959814917161006`, gain `+0.00023960216078044994`;
+     rounds `546`, fit `29.833` seconds.
+   - Total `89.511` seconds; `26623708` bytes; all 191 prior artifacts and four
+     inputs unchanged. Saved in
+     `artifacts/final_sprint_route_context_target_encoding/`.
+   - Only seed 2024 clears the practical gate; a favorable average or one
+     qualifying split does not meet the required both-seed rule.
+
+Both use fixed smoothing `20.0`, five shuffled stratified encoding folds and
+seed `42`. Only inner model-fit labels enter `fit_transform`; early-stopping
+and outer-holdout rows use `transform` from the encoder fitted on all inner-fit
+rows. Original teacher/profile features, source-only teacher, original CatBoost,
+weights and split rows stay frozen. No extra parameter or key search occurred.
+Each trial used the original `1680/1800` graceful/external deadline and two
+threads. Parent runs the supported project-root timeout command with each
+new `--experiment` choice; the runner never launches the next trial itself.
+
+The existing runner/test received a small additive extension, not another
+experiment framework. Historical three-trial metadata and predictions remain
+byte-identical and retain their original source SHA. A scratch snapshot of that
+old runner (`06fb5c013978a580ffaf356587bf55db0404b0892e84b14614d660310663c9fb`)
+was used to check old/new default encoding equality directly. Independent
+read-only review passed for the extended runner SHA
+`f0ca23087516bd8a2814ba9df71a04879ef4ea915362992bbf509be96be0f958`
+and test SHA `6d93e3cbcc8242bf85294a37d62463d488af6326bb620025329b828f0e9f404a`.
+Synthetic checks include exact parameter differences, unchanged original
+features/specification, cross-fit count oracles, unseen-key fallback and
+held-out-label independence. Read-only real-output verification recomputed
+all four fitted students' AUC/log loss, baseline/candidate metrics, own-ID and
+split alignment, blend/gate arithmetic, actual 31/127-leaf settings, feature
+schemas and before/after source/input/protected-artifact hashes. Public CSV
+bytes remain unchanged. Format, Ruff, mypy and all 146 tests pass. Source/tests,
+preceding residual work and updated existing docs remain uncommitted/unpushed.
+Reused holdouts remain exploratory selection evidence, not independent proof.
+
+## User-authorized up-to-20 goal loop
+
+User authorized up to **20 new attempts**, stopping at the **first** gain of
+at least `+0.0002` on **both** existing holdouts; after verification, commit and
+push the code and stop. This authorizes no Kaggle upload, full-data export,
+confirmation CV or new dependencies. Every tested configuration, including a
+cached-prediction combination, counts once. All compare against the unchanged
+public-0.95982 profile configuration (AUCs `0.9593360799332391` and
+`0.9595753150002255`), never a weaker baseline. The reused holdouts remain
+selection data; passing this practical gate is not independent confirmation.
+
+First three new attempts, in declared order:
+
+1. **Four context encodings + 127 leaves:** AUCs `0.9595138561737755` /
+   `0.9597576674973888`; gains `+0.00017777624053638696` /
+   `+0.00018235249716325175`. Reject. Selected/native rounds `189/249`, total
+   `78.035` seconds, `26628363` bytes; 194 prior artifacts/four inputs intact.
+   Output `artifacts/final_sprint_route_context_target_encoding127/`.
+2. **Hierarchical route smoothing:** original 39 predictors plus four route
+   means, with 31 leaves. Exact Distance uses the encoding-fit global prevalence;
+   Distance×Class/Travel/Customer use that category's encoding-fit prevalence
+   as the smoothing prior. Fixed smoothing `20`, five shuffled stratified
+   complementary encoding folds, seed `42`; unknown pairs fall back to their
+   parent-category prior, unknown parent categories to the global prior.
+   AUCs `0.9595073219456269` / `0.9598797365304188`; gains
+   `+0.00017124201238782888` / `+0.00030442153019327733`. Reject: seed 42 misses.
+   Rounds `609/614`, total `103.491` seconds, `26629964` bytes; 197 prior
+   artifacts/four inputs intact. Output
+   `artifacts/final_sprint_route_hierarchical_encoding/`.
+3. **Source-anchored teacher-residual route encoding:** original 39 plus four
+   route/context means of `label - frozen teacher probability`, with 31 leaves.
+   Fixed smoothing `20` toward each encoding-fit mean residual; same five
+   stratified folds and seed. Negative feature values are valid and checked
+   in `[-1,1]`; no teacher refit. AUCs `0.9594541270750733` /
+   `0.9598274989179776`; gains `+0.00011804714183416554` /
+   `+0.00025218391775205795`. Reject: seed 42 misses. Rounds `266/504`, total
+   `84.562` seconds, `26630658` bytes; 200 prior artifacts/four inputs intact.
+   Output `artifacts/final_sprint_route_teacher_residual_encoding/`.
+
+All label-derived training features use only complementary encoding-fit rows;
+only inner model-fit labels enter any learned statistic. Early-stopping/outer
+rows use maps fitted on all inner-fit rows. Original teacher, profile tables,
+CatBoost, 50/50 weights and all original predictors stay fixed for these trials.
+Read-only independent rescoring verified both held-out CSVs for each trial,
+all metrics/blend/gate arithmetic and source/input/protected fingerprints.
+A separate real-data groupby oracle checked each novel four-feature formula on
+960 model-fit/early-stopping/holdout rows per seed per method: maximum absolute
+error `0.0`, all saved encoding-fold fingerprints matched. No model training
+was performed by that verifier.
+
+Independent review found a provenance gap in the inherited flat encoder's
+metadata, not a modeling/leakage defect. A failing regression was added, then
+explicit fold fingerprints/data/source/timing/prior-policy fields were added;
+focused re-review passed. Frozen main-runner SHA
+`a4d37fe548c03f3493c022d9bec077cf4e886993509ef99a261aec73035b85e4`, test SHA
+`5eb5e9bd3c98a141f618046e2a4180649dbca33f51b0d6b542292a8ade65e724`.
+Historical output metadata was not rewritten.
+
+4. **Equal average of complementary route students — QUALIFIED:**
+   `0.5 original CatBoost + 0.25 context-encoding LightGBM127 + 0.25 hierarchical
+   LightGBM31`. Reused the exact already-measured student predictions, each
+   aligned by its own IDs; no new fits or target-statistic refit occurred.
+   - Seed 42 baseline `0.9593360799332391`, candidate `0.9595596911655389`,
+     gain `+0.00022361123229974744`.
+   - Seed 2024 baseline `0.9595753150002255`, candidate `0.959864554491251`,
+     gain `+0.0002892394910254392`.
+   - Both exceed the unchanged `+0.0002` gate. This is the first pass in this
+     freshly authorized loop: **stop at attempt 4 of at most 20**. Attempt 5
+     (`0.4 Cat + 0.6 hierarchical31`) was declared but **not run**, and no later
+     attempts, confirmation CV, refit/export or upload followed.
+   - Scoring `7.902` seconds, zero fits/training seconds, `26577902` output bytes;
+     203 prior artifacts and four inputs unchanged. Outputs
+     `artifacts/cached_route_blends_route_pair_average/compare_metadata.json`
+     and the two own-ID validation CSVs. The original public submission CSV
+     remains byte-identical; public ROC AUC is still `0.95982`, not a new score.
+
+`cached_route_blends.py` validates source-code/input/prediction fingerprints,
+complete source status, model settings, 43-feature schemas and original split/
+inner-fit membership before scoring either fixed combination. A failing
+metadata-size regression prompted counting final JSON bytes. Independent review
+then found mismatched alternate-path lineage and a possible misleading completed
+record after a final write failure. Both were reproduced with failing checks:
+canonical source/seed filenames are now mandatory and final metadata is staged
+and atomically replaced, with failed state/cleared selection on persistence
+errors. Current independent focused re-review passed for source SHA
+`5fbb9065909d2de6dc4585428a896c8c94b54310ac77ac7ef27c5dd46ace3fff`
+and test SHA `9684cbc353033ffed8ed1263b2d3be439e1a7d1cdd4d40380b1067fe01ea06de`.
+All 157 tests, format, Ruff and mypy pass. Read-only independent rescoring of
+both written CSVs reproduced baseline/candidate/student AUC and log loss,
+component arithmetic, IDs, original probabilities and the exact gate. Hash
+checks confirm all protected artifacts and inputs stayed unchanged.
+
+The user explicitly authorized commit/push after this pass. The checkpoint
+includes the required existing residual/sprint helper source and tests plus
+these cached-blend source/tests and actual-result documentation; raw data,
+artifacts, virtual environment and credentials remain ignored. Earlier sections'
+"uncommitted" statements describe their then-current checkpoints. This selected
+candidate has **only** passed the reused-holdout screen; it is not yet a
+five-fold-qualified export or Kaggle submission.
+
 ## Observed local data
 
 All three downloaded CSVs were inspected locally. Only aggregate statistics were returned to the conversation.
