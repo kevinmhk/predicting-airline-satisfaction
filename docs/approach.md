@@ -1788,6 +1788,65 @@ full-data refit/export or Kaggle upload occurred; the previously submitted
 public-`0.96001` CSV remains byte-identical. These selected holdout gains do
 not establish an improvement on the public or final private leaderboard.
 
+## Authorized 30/35/35 export and Kaggle release
+
+After the six-attempt loop stopped, the user explicitly authorized fit/export,
+Kaggle upload and another commit/push. The selected change is only weights:
+`0.30 CatBoost + 0.35 context127 + 0.35 hierarchical31`. The exact full-data
+fits already exist and remain the same: context 219 trees and hierarchical
+612 trees on 699,635 rows, frozen source teacher 531 and CatBoost 4,740.
+The release **reuses these verified fits, with zero new training**, instead of
+repeating identical fits. It does not include rejected boarding/teacher-bin
+features, a new experiment or new five-fold model confirmation.
+
+New entry point `route_pair_light70_export.py` reuses the existing CSV writer,
+fresh-interpreter native inference, invalidation and atomic-metadata helpers.
+The source export's seven checkpoint files, native model hashes, original
+submission and all recorded source files are checked before reuse. Winner
+validation regenerates the two canonical holdouts, checks exact own row/ID
+vectors, recomputes baseline/candidate AUC and log loss from training labels,
+and evaluates the unchanged gate on those recomputed AUCs. Independent review
+initially found the missing metric-rescoring guard; a forged-metric regression
+and the guard closed that issue. A full synthetic export regression also
+caught incorrect use of a plain NPY as a context manager before actual export.
+Final focused independent review passed for runner SHA-256
+`6301abd0d95e0cdd266ed75990c95214bba4c9428cba2542af1f4adeaf0727ff`,
+test SHA-256 `fdc1db1ada332b96fa2368ef3c06c15efeec4c65061b689ea9fd48134edcd732`.
+Codex quota exhaustion delayed review; no unreviewed upload occurred.
+Format, Ruff, mypy and all **184 tests** pass.
+
+The real export finished in **27.545 seconds**, **8,291,489 output bytes**.
+Fresh-interpreter inference reproduced all three cached component vectors with
+maximum difference **0.0** on all **299,844 test rows**. The fresh components,
+not the child's old 50/25/25 blend column, formed the new 30/35/35 scores.
+CSV serialization difference was `2.220446049250313e-16`; independent
+round-trip CSV verification reproduced the new weighted probabilities exactly
+(maximum difference **0.0**). Headers are exactly `id,satisfaction`, test IDs
+are unique and retain original order, and probabilities are finite in `[0,1]`.
+All **241 prior artifacts and four input files** stayed byte-identical; native
+models, old submitted CSVs and source metadata were not rewritten.
+
+New CSV:
+`artifacts/route_pair_light70_export/submission_slowcat_route_context_hierarchical_30_35_35.csv`
+
+SHA-256: `9b8bee3c3290ac93472b845f586363b53f805767451845411a99fde4b165acaa`.
+Metadata: `artifacts/route_pair_light70_export/export_metadata.json`.
+Reproduce from the project root:
+`timeout --signal=TERM --kill-after=30s 1800s .venv/bin/python route_pair_light70_export.py --data-dir data --artifacts-dir artifacts`.
+Existing output directories are intentionally not overwritten.
+
+Live checks confirmed entered status, the `2026-10-31 23:59 UTC` deadline,
+and no matching earlier upload. The exact verified CSV was submitted **once**:
+**57831976**, API readback **COMPLETE**, public ROC AUC **0.96027**.
+The prior **57823822 / 0.96001** remains preserved; decimal public gain is
+**+0.00026**. API account rank was **1808** before upload and **1710** at the
+scoring check among **3656** teams; these are time-dependent observations,
+not final rankings. Upload returned **8 submissions remaining that day**.
+No retry upload, final-submission-selection change or private-score claim was
+made. The user authorized this source/test and actual-result documentation
+checkpoint for commit/push; data, generated artifacts and environment stay
+ignored.
+
 ## Observed local data
 
 All three downloaded CSVs were inspected locally. Only aggregate statistics were returned to the conversation.
