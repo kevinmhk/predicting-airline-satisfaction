@@ -1699,6 +1699,95 @@ User subsequently authorized commit/push for this export checkpoint. It includes
 `route_pair_export.py`, `test_route_pair_export.py` and these two updated docs;
 raw data, generated artifacts and the virtual environment remain excluded.
 
+## Second up-to-20 loop against the released route-pair incumbent
+
+The user authorized a fresh maximum of 20 counted configurations, stopping at
+first `+0.0002` AUC gain on **each** recorded holdout, then verifying, committing
+and pushing. The fixed comparator is now the public-`0.96001` route-pair blend:
+seed 42 `0.9595596911655389`, seed 2024 `0.959864554491251`. The lower profile
+baseline is not used. Confirmation CV, full-data export and Kaggle upload are
+not part of this authorization. Reused overlapping holdouts remain selection
+and stability evidence, not independent confirmation or a public-gain promise.
+
+The first five configurations were independently rejected; the sixth passed
+(gains 42/2024):
+
+1. `pair_light60`: `40% Cat + 30% context + 30% hierarchical`,
+   `+0.0001909405054167923 / +0.0001444296803210232`.
+2. `pair_rank_average`: average-tie ranks divided by `N+1`, then `50/25/25`,
+   `-0.00008738146304443362 / -0.000032219412584799656`.
+3. `pair_logit_average`: clip at `1e-6`, average logits at `50/25/25`, sigmoid,
+   `+0.000017290034929118292 / +0.00004427908520310275`.
+4. `boarding_route`: append one cross-fitted Distance×Online-boarding target
+   mean to **both** current students, with boarding-specific target prevalence
+   as prior; retain original `50/25/25` weights.
+   `+0.000006469252133323167 / -0.00003770678193737442`.
+   Best rounds context/hierarchical: `252/434` and `201/316`.
+   Actual `167.738` seconds, four fits; 224 prior artifacts/four inputs unchanged.
+5. `teacher_route`: append one Distance×frozen-source-teacher-confidence-bin
+   target mean, using bin prevalence as prior. Five fixed width-`0.2` bins,
+   `floor(5*p)` capped at 4; unchanged `50/25/25` weights.
+   `+0.00012208351812903473 / -0.000001945969582584084`.
+   Best rounds context/hierarchical: `191/230` and `157/394`.
+   Actual `159.741` seconds, four fits; 231 prior artifacts/four inputs unchanged.
+
+6. **`pair_light70` — first full gate pass; STOP at 6/20.** One fixed counted
+   step to `30% original Cat + 35% original context127 + 35% original
+   hierarchical31`, reusing the original accepted components, not the rejected
+   new-feature students. This followed the predeclared positive `40/30/30`
+   near-miss; no other weights were scored in this step.
+   - Seed 42: baseline `0.9595596911655389`, candidate `0.9598727586443816`,
+     gain **`+0.00031306747884274344`**.
+   - Seed 2024: baseline `0.959864554491251`, candidate `0.9600868558567431`,
+     gain **`+0.0002223013654921724`**.
+   - Both exceed the unchanged `+0.0002` gate against the latest route-pair
+     incumbent. Stop immediately; no attempt 7 or later was run.
+   - `10.139` seconds, **zero fits/training seconds**, `32228900` output bytes;
+     all 238 prior artifacts and four inputs unchanged.
+   - Outputs `artifacts/round2_pair_light70/compare_metadata.json` and
+     `validation_pair_light70_seed42.csv` / `validation_pair_light70_seed2024.csv`.
+
+The first three and sixth reuse saved original probabilities and perform no fits.
+Feature trials retain every original 43-feature value, append only one numeric feature
+(44 total, 40 numeric/four categorical), and preserve model parameters:
+context 127 leaves, hierarchical 31 leaves, two threads, 1,500-round cap,
+learning rate `0.04`, min child size 40, L2 1, AUC-only inner early stopping.
+Each extra mean uses smoothing 20 and five shuffled stratified folds, seed 42,
+within the **503,737 inner-fit rows only**. Encoding helpers accept only these
+labels; early-stopping/outer rows use inner-fit maps. Missing/observed zero are
+preserved; unseen keys use their parent prior, unseen parents the fit prevalence.
+Frozen teacher, original CatBoost and inner-fit-only profile tables are reused.
+
+`round2_cached_experiments.py` and `round2_feature_experiments.py` reuse existing
+source/split/own-ID/cache, metric, gate and atomic-metadata helpers. Independent
+review and the then-current 176 tests passed before feature fits. Added failing checks caught a seven-versus-six output
+schema mismatch and an incorrect epsilon at teacher-bin boundaries; both were
+fixed before real fits. Students are built/fitted sequentially and each finished
+component's own-ID probabilities/metadata are persisted immediately. Actual
+input/cache/feature preflight passed before training. Independent post-run
+rescoring reproduced saved blend arithmetic, metrics, AUC gains, component
+NPZ/CSV agreement, model settings and fingerprints. Earlier run source metadata
+and all original submitted CSV bytes remain unchanged.
+
+Conditional `40/30/30` reweights of a new-feature trial are allowed only if it is
+positive on both seeds but not qualified. Neither measured feature trial meets
+that condition, so neither conditional reweight ran. The implemented
+`joint_passenger` feature mode is also **not run** at this checkpoint.
+The fixed `30/35/35` step passed and closed the loop at attempt **6 of at most
+20**. All remaining trials, including `joint_passenger`, remain unmeasured.
+
+`round2_light70_experiment.py` / `test_round2_light70_experiment.py` received
+independent review before scoring (runner SHA-256
+`785daf65cb8a4de36075231e7da95c5a3030e76239281cb1ebb5ea3c10e71ef1`).
+Independent post-run verification joined every component by its own IDs and
+recomputed both baseline/candidate AUC and log loss, original-component
+arithmetic, unchanged gate and current input/source/protected fingerprints.
+Format, Ruff, mypy and all **179 tests** pass. Source and actual-result docs
+are authorized for commit/push on this first pass. No further confirmation CV,
+full-data refit/export or Kaggle upload occurred; the previously submitted
+public-`0.96001` CSV remains byte-identical. These selected holdout gains do
+not establish an improvement on the public or final private leaderboard.
+
 ## Observed local data
 
 All three downloaded CSVs were inspected locally. Only aggregate statistics were returned to the conversation.
