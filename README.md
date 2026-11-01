@@ -215,14 +215,30 @@ The full experiment chronology and prerequisite references are recorded in
 
 ### Final warm-cache export
 
-The final export requires the previously validated data and artifact lineage.
-At minimum, preserve the source-teacher and slower-CatBoost exports, the
-distance-profile and split/qualification artifacts, the final-sprint context
-and hierarchical artifacts, the route-pair export, and the cached
-`round2_pair_light70` qualification. The script validates hashes and metadata
-and fails if a prerequisite is missing or changed.
+The final exporter is a guarded warm-cache workflow. It requires the original
+validated artifact lineage, including intermediate qualification artifacts, and
+it can reject a moved snapshot because its paths and historical hashes are part
+of the guard contract. It is not the portable restore workflow.
 
-With those artifacts restored:
+Use [docs/restore.md](docs/restore.md) for the smaller private archive that
+supports final-model inference and exact CSV recovery. The retention tiers are:
+
+- Keep only the final 30/35/35 CSV and its metadata when exact submission
+  retrieval is the only requirement.
+- Keep the documented restore manifest, `data/test.csv`, and the listed native
+  models and feature artifacts for portable final-model inference and CSV
+  recovery.
+- Keep `data/train.csv`, `data/source_airline/data.csv`, and
+  `data/sample_submission.csv` too when future training matters. They do not
+  by themselves supply a clean-clone retraining pipeline. Keep the complete
+  historical artifact lineage and referenced source snapshots only when the
+  original diagnostics or guarded historical exporters must be investigated.
+
+The slim archive deliberately does not preserve every diagnostic or authorize
+rerunning the guarded historical exporters. Do not use the slim archive to
+claim that all historical artifacts can be retrained.
+
+With the complete original lineage restored:
 
 ```bash
 .venv/bin/python route_pair_light70_export.py \
@@ -298,8 +314,11 @@ Pinned direct dependencies do not lock all transitive dependencies, OS/GLIBC,
 CPU behavior, or native model serialization. Fixed seeds and deterministic
 settings do not guarantee byte-identical retraining across machines. Some
 saved feature specifications contain absolute paths under the original
-`/home/kevinmhk/...` root; moving the project requires an explicitly tested
-path-rebasing procedure and changes metadata hashes.
+`/home/kevinmhk/...` root. The [portable restore](docs/restore.md) rebases only a
+working copy; the archive and its original hashes stay unchanged. Relocated
+native inference was tested in a fresh environment on the same VPS and
+reproduced the exact submitted CSV. A physically different machine or OS has
+not been tested.
 
 A local recovery check rebuilt the final CSV from the preserved
 `artifacts/route_pair_export/component_test_predictions.npz` using the existing
@@ -318,16 +337,14 @@ Only preserving and verifying the original files can guarantee their bytes.
 ## Retention and deletion warning
 
 **GitHub is not a data or model backup. Before deleting local files, preserve
-both `data/` and the complete `artifacts/` tree externally.** The safest
-retention unit is all artifacts, because guarded re-export and lineage checks
-depend on historical qualification, split, cache, model, metadata, and source
-files. Retain referenced historical source snapshots/recovery notes outside
-the repo too if full experimental provenance matters; Git does not contain
-every scratch version. At minimum, final inference needs the final route-pair export, the
-source-teacher export, the slower-CatBoost model/metadata, the test data,
-feature specifications, route maps, profile table, component predictions,
-submission writer, and matching source code; the guarded final exporter also
-needs its qualification and upstream cache lineage.
+and verify the private files appropriate to your retention goal.** The
+[portable restore guide](docs/restore.md) lists 13 files totalling 60,869,255
+bytes (about 61 MB), including test data, native final models, feature maps,
+component predictions, and the submitted CSV. It does not require all 1.7 GB
+of experiment outputs. Preserve training inputs separately if future training
+matters. Preserve the full historical tree and referenced source snapshots only
+if full experimental provenance or historical guards matter; the slim archive
+does not preserve those capabilities.
 
 Virtual environments and ordinary package caches can usually be recreated.
 Ignored data and model artifacts cannot be recreated byte-for-byte from this
