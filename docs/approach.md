@@ -1847,6 +1847,118 @@ made. The user authorized this source/test and actual-result documentation
 checkpoint for commit/push; data, generated artifacts and environment stay
 ignored.
 
+## Third bounded loop after public 0.96027 — stopped after ten rejections
+
+The user authorized a fresh loop with a maximum of ten failed configurations.
+On a first full gate pass only, the requested sequence was commit/push, full-data
+fit or verified fit reuse, export/upload once, a second commit/push, then stop.
+The comparator was frozen at **30/35/35**, public submission **57831976 / 0.96027**:
+local AUC **0.9598727586443816** (seed 42) and **0.9600868558567431** (seed 2024).
+Every candidate needed an additional **+0.0002 on BOTH** original holdouts.
+No obsolete 50/25/25/profile baseline or favorable average replaced that rule.
+
+All ten predeclared configurations completed and were independently rejected.
+AUC gains below are seed 42 / seed 2024 (qualification used unrounded values):
+
+1. `light80`, fixed `20% Cat + 40% context + 40% hierarchical`:
+   `+0.00004578346619688034 / +0.000010696417874545006`.
+2. `agreement_weight`, label-free row routing with
+   `wCat=clip(0.20+abs(context-hierarchical),0.20,0.50)` and equal students:
+   `+0.000049479649596007036 / +0.000015628180216387122`.
+3. `uncertainty_weight`, label-free routing with `m=(context+hierarchical)/2`,
+   `wCat=0.20+0.30*4*m*(1-m)`:
+   `+0.00004101166073400275 / +0.00001864956493313752`.
+4. `joint_passenger`, one nested-cross-fit distance×class×travel×customer target
+   mean appended to both students; original 30/35/35 weights:
+   `-0.00006322186992568923 / -0.00003594084144209475`.
+5. `slow_context`, context learner only, LR `0.04 -> 0.02`, cap `1500 -> 3000`,
+   inner AUC patience `100 -> 200`; all other settings/representation unchanged:
+   `+0.0000018193284314627078 / -0.000005180699114260001`.
+6. `slow_hierarchical`, the same fixed slower-step policy in the hierarchical
+   learner only: `-0.00001513734229119379 / -0.000030403395033018477`.
+7. `hierarchical63`, only hierarchical leaves `31 -> 63`:
+   `+0.000004485828223321775 / -0.00007167371824889912`.
+8. `context_l2_5`, only context L2 `1 -> 5`:
+   `-0.0000007139084496898818 / -0.000000440553938885202`.
+9. `teacher_consensus`, one predictor-only, inner-fit distance-group mean of
+   frozen teacher probabilities appended to both students, with inner-fit
+   global-mean fallback and no competition labels in that table:
+   `+0.000011194291419491798 / -0.00003384422683005983`.
+10. `fusion63`, one 63-leaf student sees original 43 context features plus three
+    hierarchical pair encodings (46 total; duplicate distance-only mean omitted).
+    Blend `0.30 Cat + 0.175 old context + 0.175 old hierarchical + 0.35 fusion`:
+    `+0.000028496328287719308 / -0.000005165179365329564`.
+
+**STOP: ten completed configurations, ten gate failures, no qualifier.**
+Best worst-seed gain was attempt 3: `+0.00001864956493313752`, still far below
+`+0.0002`. These limited fixed tests do not establish an AUC ceiling. No eleventh
+attempt, new confirmation CV, full-data refit, export, upload, commit or push
+followed. Conditional publication authorization was not triggered. The existing
+0.96027 submission, native fits and all earlier artifact/input bytes remain
+preserved. Source/tests and this actual-result documentation remain uncommitted.
+
+`round3_experiments.py` / `test_round3_experiments.py` reuse the established
+cache, split, teacher/profile, target-encoding, fit, own-ID, metric/gate and atomic
+metadata helpers. All fits used the original inner-fit/early-stopping rows,
+AUC-only stopping and two threads; outer labels supplied scoring only. The first
+three candidates used saved probabilities with zero fits. Remaining candidates
+performed **18 sequential diagnostic fits** in total, saving each component
+before the next fit. Sum of measured trial wall times was **973.815 seconds**
+(excludes coding/review), outputs **358,918,105 bytes**. Last trial verified all
+**286 pre-existing artifacts and four inputs** unchanged; subsequent independent
+rescoring verified the complete ten-result set against each recorded manifest.
+Repeated, overlapping holdouts remain model-selection/stability evidence, not
+untouched confirmation or a promise of a public-score change.
+
+Independent review closed metadata/signal findings with failing regressions:
+count timeouts as failed while preserving their cause, persist the baseline
+submission fingerprint, best-effort persist failed state after final write
+failure, and restore each signal handler even when timer cleanup fails.
+Final source SHA-256
+`340d40fdd033c723bdd6dd735902b2d5e0615bd8c15e8d0de738a0eda8640c26`,
+test SHA-256 `e71fd785e87f88fc4a712ab1e6193d6c9b395e078fa92e33b597c92fa7a49f4a`.
+Format, Ruff, mypy and **195 tests** pass. Attempts 1–2 retain their historical
+source hashes `6d7d9d0bbe5445f0e8c9dbf7d607f6a130087878881a8c6bd5515c0c9991742d`
+/ test `f18fc419a54d2beddd3171b440c9d8caa472d46b103633503ecf470c5cf33fb9`.
+Only the timeout-flag assignment moved afterward; no feature/model/formula
+changed, no historical metadata was rewritten and no completed fit was rerun.
+Hash-verified prior source snapshots remain in the active-profile scratch.
+
+Each ignored result is `artifacts/round3_MODE/compare_metadata.json` with its
+own-ID `validation_MODE_seed42.csv` / `validation_MODE_seed2024.csv` and native
+component NPZ files where applicable. Reproduce one configuration from the root:
+`timeout --signal=TERM --kill-after=30s 1800s .venv/bin/python round3_experiments.py --experiment MODE --data-dir data --artifacts-dir artifacts`.
+The internal deadline is 1680 seconds for the whole configuration; existing
+output directories are deliberately not overwritten. The bounded loop is closed.
+
+## README and preservation closeout
+
+The user subsequently explicitly authorized the final technical README and
+commit/push of all pending source/documentation, including the rejected
+round-three runner/tests. This is separate from the earlier conditional gate
+publication rule. `README.md` documents design, versions, setup, fixed model
+configuration, baseline versus warm-cache execution and retention limits.
+Data and generated artifacts remain ignored; no deletion or backup was performed.
+
+A read-only Kaggle API check on **2026-11-01 UTC** reported submission
+**57831976 COMPLETE**, public AUC **0.96027**, private AUC **0.96117**.
+The competition-list API reported account rank **1662 / 3747** after the
+2026-10-31 23:59 UTC submission deadline. These are dated observations;
+final-submission-selection flags were not read or changed.
+
+Reproducibility audit: no tracked/local notebook exists and the guarded scripts
+consume ignored historical split/cache/qualification/model files. Current
+requirements are not a complete machine image; saved metadata contains absolute
+paths, timing/resource values and historical source fingerprints. A local
+recovery test rebuilt the winning 299844-row CSV from the preserved component
+NPZ with exact SHA-256 `9b8bee3c3290ac93472b845f586363b53f805767451845411a99fde4b165acaa`.
+A tiny synthetic repeat-fit test produced identical predictions but different
+CatBoost model GUIDs and serialized file hashes. Thus a Git checkout plus
+retraining cannot promise exact regeneration of every artifact. Preserve and
+verify `data/`, all `artifacts/` and any needed external source snapshots before
+removing local copies. Same-host CSV recovery is not a cross-machine retraining
+verification.
+
 ## Observed local data
 
 All three downloaded CSVs were inspected locally. Only aggregate statistics were returned to the conversation.
